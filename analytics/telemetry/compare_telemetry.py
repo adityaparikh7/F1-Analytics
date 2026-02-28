@@ -24,10 +24,10 @@ fastf1.plotting.setup_mpl(mpl_timedelta_support=True, color_scheme='fastf1')
 fastf1.Cache.enable_cache('analytics/cache')  # change as needed
 
 YEAR = 2025
-EVENT = 'British Grand Prix'
+EVENT = 'Abu Dhabi Grand Prix'
 SESSION_TYPE = 'Q'   # 'Q' for qualifying, 'R' for race, 'FP1' etc.
-DRIVER1 = 'HAM'  # can be driver number or 'VER', 'HAM', etc.
-DRIVER2 = 'LEC'
+DRIVER1 = '1'  # can be driver number or 'VER', 'HAM', etc.
+DRIVER2 = '4'
 
 # -------------------------
 # Load session and laps

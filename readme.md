@@ -5,7 +5,7 @@ A comprehensive collection of Python scripts for analyzing Formula 1 telemetry a
 ## Features
 
 *   **Race Analysis**: 
-    *   `compare_telemetry.py`: Compare race pace between teammates or rivals.
+   
     *   `race_pace.py`: Analyze overall race pace distribution.
     *   `lap-deltas.py`: Visualize lap time deltas throughout a race.
     *   `long-run-pace-est.py`: Estimate long-run pace from practice sessions.
@@ -17,6 +17,7 @@ A comprehensive collection of Python scripts for analyzing Formula 1 telemetry a
     *   `driving-phases.py`: Analyze time spent in different driving phases (throttle, braking, coasting).
     *   `aero_setup.py`: Insights into aerodynamic setups based on speed traces.
     *   `top_speed.py`: Analyze top speeds achieved during sessions.
+    *   `compare_telemetry.py`: Compare fastest laps of any session between teammates or rivals.
 *   **Tyre Analysis**:
     *   `tyre-performance-modeling.py`: Advanced modeling of tyre degradation and performance evolution.
     *   `tyre-strategy.py`: Analyze tyre strategies used during the race.
