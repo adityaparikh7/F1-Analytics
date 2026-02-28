@@ -12,9 +12,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # ==== EDIT THESE ====
-YEAR = 2023
-DRIVER_A = "14"   
-DRIVER_B = "18"  
+YEAR = 2025
+DRIVER_A = "4"   
+DRIVER_B = "81"  
 CACHE_DIR = "analytics/cache"
 OUTDIR = "analytics/outputs/quali_h2h"
 SHOW_PLOTS = True
@@ -305,8 +305,16 @@ def main():
     print(printable[cols].to_string(index=False))
 
     outdir = Path(OUTDIR)
-    # title_prefix = f"{YEAR} {team} {a_abbr} vs {b_abbr} Qualifying H2H"
-    title_prefix = f"{YEAR} {a_abbr} vs {b_abbr} Qualifying H2H"
+    
+    # Check if they are teammates (all rows have same team, or at least the most recent one)
+    # The dataset df has a 'Team' column. If they are teammates, it should be consistent-ish.
+    # We'll just grab the team from the first row as the 'representative' team if it exists.
+    team_name = df["Team"].iloc[0] if "Team" in df.columns and pd.notna(df["Team"].iloc[0]) else None
+    
+    if team_name:
+        title_prefix = f"{YEAR} {team_name} {a_abbr} vs {b_abbr} Qualifying H2H"
+    else:
+        title_prefix = f"{YEAR} {a_abbr} vs {b_abbr} Qualifying H2H"
 
     if SAVE_CSV:
         outdir.mkdir(parents=True, exist_ok=True)
