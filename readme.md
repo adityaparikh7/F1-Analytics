@@ -12,7 +12,7 @@ A comprehensive collection of Python scripts for analyzing Formula 1 telemetry a
 *   **Qualifying Analysis**:
     *   `compare_quali.py`: Detailed telemetry comparison of qualifying laps (speed, throttle, brake, gear).
     *   `quali_h2h.py`: Head-to-head qualifying performance analysis.
-    *   `quali_years.py`: Compare qualifying performance across different years.
+    <!-- *   `quali_years.py`: Compare qualifying performance across different years. -->
 *   **Telemetry**:
     *   `driving-phases.py`: Analyze time spent in different driving phases (throttle, braking, coasting).
     *   `aero_setup.py`: Insights into aerodynamic setups based on speed traces.
