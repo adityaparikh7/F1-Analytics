@@ -18,7 +18,7 @@ sns.set_theme(style="darkgrid", context="talk")
 ###############################################################################
 # Load the race session.
 year = 2025
-event = "Abu Dhabi Grand Prix"
+event = "Qatar Grand Prix"
 race = fastf1.get_session(year, event, 'R')
 race.load()
 
@@ -54,7 +54,7 @@ def format_lap_time(x, _):
 
 ###############################################################################
 # TEAM PLOT
-fig, ax = plt.subplots(figsize=(15, 9))
+fig, ax = plt.subplots(figsize=(18, 10))
 
 sns.boxplot(
     data=transformed_laps,
@@ -119,6 +119,7 @@ plt.title(f"{event} {year} - Team Race Pace", fontsize=20, pad=14)
 ax.grid(axis='y', color='0.3', alpha=0.3)
 ax.grid(axis='x', visible=False)
 plt.tight_layout()
+plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_team_pace.png", bbox_inches='tight', dpi=300)
 
 ###############################################################################
 # DRIVER PLOT
@@ -141,7 +142,7 @@ driver_palette = {
     for drv in driver_order
 }
 
-fig2, ax2 = plt.subplots(figsize=(16, 10))
+fig2, ax2 = plt.subplots(figsize=(25, 12))
 
 # Use boxplot + swarm for distribution
 sns.boxplot(
@@ -203,6 +204,6 @@ ax2.set_xlabel(None)
 ax2.set_title(f"{event} {year} - Driver Race Pace", fontsize=20, pad=16)
 ax2.grid(axis='y', color='0.3', alpha=0.3)
 ax2.grid(axis='x', visible=False)
-
 plt.tight_layout()
+plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_driver_pace.png", bbox_inches='tight', dpi=300)
 plt.show()
