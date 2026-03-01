@@ -1,18 +1,34 @@
 """
 Plot a heatmap of top lap speeds per driver for a given session, using either official Speed Trap values or telemetry maxima.
 """
-import argparse
-import os
 from typing import List, Dict
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
 import fastf1
 from fastf1 import plotting
 
+
+def get_session_config():
+    """
+    Helper to select between a Race Session or Pre-Season Testing.
+    Returns the appropriate session object.
+    """
+    year = 2026  # Default year
+    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+
+    if mode == 'RACE':
+        event = "Bahrain"
+        session_type = "Q"
+        return fastf1.get_session(year, event, session_type)
+
+    elif mode == 'TESTING':
+        test_number = 2
+        session_number = 2
+        return fastf1.get_testing_session(year, test_number, session_number)
+
+    raise ValueError(f"Unknown mode: {mode}")
 
 def compute_driver_lap_top_speeds(session, driver: str, source: str) -> List[float]:
     """Return a list of per-lap top speeds (km/h) for a given driver.
@@ -109,7 +125,7 @@ def plot_heatmap(df: pd.DataFrame, title: str, values_note: str, save_path: str 
 
     # Build annotation strings so every box has a label (use "-" for NaN)
     annot_data = df.copy()
-    annot_str = annot_data.applymap(
+    annot_str = annot_data.map(
         lambda v: "-" if pd.isna(v) else f"{v:.1f}")
 
     hm = sns.heatmap(
@@ -142,31 +158,20 @@ def plot_heatmap(df: pd.DataFrame, title: str, values_note: str, save_path: str 
 
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+        plt.savefig(f'{save_path}/{title.replace(" ", "_")}.png', dpi=300, bbox_inches="tight")
     plt.show()
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Plot a heatmap of top 15 lap top speeds per driver + average."
-    )
-    # Hard-coded inputs
-    YEAR = 2025
-    GP = "Las Vegas Grand Prix"
-    EVENT = "R"
-    parser.add_argument("--session", type=str, default=EVENT,
-                        help="Session (FP1, FP2, FP3, Q, SQ, R)")
-    parser.add_argument("--top-n", type=int, default=15,
-                        help="How many top lap top speeds to display")
-    parser.add_argument("--save", type=str, default="",
-                        help="Optional path to save the figure (PNG)")
-    args = parser.parse_args()
+    # Hard-coded configuration
+    TOP_N = 15 # how many top speeds to show per driver (in addition to the average)
+    SAVE_PATH = 'analytics/outputs/top_speed'
 
     # Enable cache
     fastf1.Cache.enable_cache('analytics/cache')
 
     # Load session
-    session = fastf1.get_session(YEAR, GP, EVENT)
+    session = get_session_config()
     session.load(telemetry=True, laps=True, weather=False, messages=False)
 
     # Decide value source
@@ -175,13 +180,19 @@ def main():
                   else "Values: per-lap telemetry max speed (km/h)"
 
     event = session.event
-    event_name = f"{event['EventName']} {YEAR} {EVENT}"
-    title = f"Top Speeds Heatmap — {event_name} (Top {args.top_n} per driver + Avg)"
+    # Construct a title using the event metadata
+    # (session.event usually has 'EventName', year is session.event.year)
+    event_year = event.year
+    event_name_str = event.EventName
+    # Session name might be in event.SessionX or we can just use the session name
+    session_name = session.name
 
-    df = make_heatmap_df(session, top_n=args.top_n, source=source)
+    full_event_name = f"{event_name_str} {event_year} {session_name}"
+    title = f"Top Speeds Heatmap — {full_event_name} (Top {TOP_N} per driver + Avg)"
 
-    save_path = args.save if args.save else None
-    plot_heatmap(df, title=title, values_note=values_note, save_path=save_path)
+    df = make_heatmap_df(session, top_n=TOP_N, source=source)
+
+    plot_heatmap(df, title=title, values_note=values_note, save_path=SAVE_PATH)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,26 @@ plt.rcParams.update({
 })
 
 
+def get_session_config():
+    """
+    Helper to select between a Race Session or Pre-Season Testing.
+    Returns the appropriate session object.
+    """
+    year = 2026  # Default year
+    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+
+    if mode == 'RACE':
+        event = "Bahrain"
+        session_type = "Q"
+        return fastf1.get_session(year, event, session_type)
+
+    elif mode == 'TESTING':
+        test_number = 2
+        session_number = 3
+        return fastf1.get_testing_session(year, test_number, session_number)
+
+    raise ValueError(f"Unknown mode: {mode}")
+
 # ------------------------------------------------------------
 # Utility: Compute mean & top speed from telemetry
 # ------------------------------------------------------------
@@ -54,11 +74,23 @@ def get_lap_speeds(lap):
 # ------------------------------------------------------------
 # Main Plot
 # ------------------------------------------------------------
-def plot_aero_map(year, grand_prix, session_type):
-
-    # session = fastf1.get_session(year, grand_prix, session_type)
-    session = fastf1.get_session(year, grand_prix, session_type)
+def plot_aero_map(session):
+    
     session.load()
+    
+    # Extract metadata for plot titles/filenames
+    # Handle potential missing attributes for testing sessions
+    try:
+        year = session.event.Year
+    except AttributeError:
+        year = session.date.year if hasattr(session, 'date') else 2026
+        
+    try:
+        grand_prix = session.event.EventName
+    except AttributeError:
+        grand_prix = "Pre-Season Testing"
+        
+    session_type = session.name
 
     # --------------------------------------------------------
     # Best lap per team
@@ -71,6 +103,9 @@ def plot_aero_map(year, grand_prix, session_type):
             continue
 
         best_lap = laps.pick_fastest()
+
+        if best_lap is None:
+            continue
         team = best_lap['Team']
 
         if team not in team_best_laps or best_lap['LapTime'] < team_best_laps[team]['LapTime']:
@@ -206,10 +241,22 @@ def plot_aero_map(year, grand_prix, session_type):
     plt.show()
 
 
-def plot_aero_map_plotly(year, grand_prix, session_type):
-
-    session = fastf1.get_session(year, grand_prix, session_type)
+def plot_aero_map_plotly(session):
+    
     session.load()
+    
+    # Extract metadata
+    try:
+        year = session.event.Year
+    except AttributeError:
+        year = session.date.year if hasattr(session, 'date') else 2026
+        
+    try:
+        grand_prix = session.event.EventName
+    except AttributeError:
+        grand_prix = "Pre-Season Testing"
+        
+    session_type = session.name
 
     team_best_laps = {}
 
@@ -322,5 +369,9 @@ def plot_aero_map_plotly(year, grand_prix, session_type):
 # ------------------------------------------------------------
 # Run
 # ------------------------------------------------------------
-plot_aero_map(2025, "Monaco", "R")
-# plot_aero_map_plotly(2025, "Abu Dhabi", "R")
+if __name__ == "__main__":
+    session = get_session_config()
+    plot_aero_map(session)
+    
+    # For Plotly version (renders in browser)
+    # plot_aero_map_plotly(session)

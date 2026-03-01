@@ -15,12 +15,33 @@ fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
 fastf1.Cache.enable_cache('analytics/cache')
 sns.set_theme(style="darkgrid", context="talk")
 
+def get_session_config():
+    """
+    Helper to select between a Race Session or Pre-Season Testing.
+    Returns the appropriate session object.
+    """
+    year = 2026  # Default year
+    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+
+    if mode == 'RACE':
+        event = "Monaco"
+        session_type = "R"
+        return fastf1.get_session(year, event, session_type)
+        
+    elif mode == 'TESTING':
+        test_number = 2
+        session_number = 1
+        return fastf1.get_testing_session(year, test_number, session_number)
+
+    raise ValueError(f"Unknown mode: {mode}")
+
 ###############################################################################
 # Load the race session.
-year = 2025
-event = "Qatar Grand Prix"
-race = fastf1.get_session(year, event, 'R')
+race = get_session_config()
 race.load()
+year = race.date.year
+event = race.event['EventName']
+session = race.name
 
 # Pick all quick laps (within 107% of fastest lap).
 laps = race.laps.pick_quicklaps()
@@ -115,11 +136,11 @@ ax.invert_yaxis()
 ax.yaxis.set_major_formatter(FuncFormatter(format_lap_time))
 ax.set_ylabel("Lap Time (m:ss.xx)")
 ax.set_xlabel(None)
-plt.title(f"{event} {year} - Team Race Pace", fontsize=20, pad=14)
+plt.title(f"{event} {year} - {session} - Team Race Pace", fontsize=20, pad=14)
 ax.grid(axis='y', color='0.3', alpha=0.3)
 ax.grid(axis='x', visible=False)
 plt.tight_layout()
-plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_team_pace.png", bbox_inches='tight', dpi=300)
+plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_{session.replace(' ', '_')}_team_pace.png", bbox_inches='tight', dpi=300)
 
 ###############################################################################
 # DRIVER PLOT
@@ -201,9 +222,9 @@ ax2.invert_yaxis()
 ax2.yaxis.set_major_formatter(FuncFormatter(format_lap_time))
 ax2.set_ylabel("Lap Time (m:ss.xx)")
 ax2.set_xlabel(None)
-ax2.set_title(f"{event} {year} - Driver Race Pace", fontsize=20, pad=16)
+ax2.set_title(f"{event} {year} - {session} - Driver Race Pace", fontsize=20, pad=16)
 ax2.grid(axis='y', color='0.3', alpha=0.3)
 ax2.grid(axis='x', visible=False)
 plt.tight_layout()
-plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_driver_pace.png", bbox_inches='tight', dpi=300)
+plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_{session.replace(' ', '_')}_driver_pace.png", bbox_inches='tight', dpi=300)
 plt.show()
