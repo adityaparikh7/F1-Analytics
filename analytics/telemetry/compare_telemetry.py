@@ -23,17 +23,39 @@ from matplotlib.lines import Line2D
 fastf1.plotting.setup_mpl(mpl_timedelta_support=True, color_scheme='fastf1')
 fastf1.Cache.enable_cache('analytics/cache')  # change as needed
 
-YEAR = 2025
-EVENT = 'Abu Dhabi Grand Prix'
-SESSION_TYPE = 'Q'   # 'Q' for qualifying, 'R' for race, 'FP1' etc.
-DRIVER1 = '1'  # can be driver number or 'VER', 'HAM', etc.
-DRIVER2 = '4'
+def get_session_config():
+    """
+    Helper to select between a Race Session or Pre-Season Testing.
+    Returns the appropriate session object.
+    """
+    year = 2026 
+    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+
+    if mode == 'RACE':
+        event = "Australia"
+        session_type = "Q"
+        return fastf1.get_session(year, event, session_type)
+
+    elif mode == 'TESTING':
+        test_number = 2
+        session_number = 2
+        return fastf1.get_testing_session(year, test_number, session_number)
+
+    raise ValueError(f"Unknown mode: {mode}")
+
+DRIVER1 = '44'  # can be driver number or 'VER', 'HAM', etc.
+DRIVER2 = '3'
 
 # -------------------------
 # Load session and laps
 # -------------------------
-session = fastf1.get_session(YEAR, EVENT, SESSION_TYPE)
+session = get_session_config()
 session.load(laps=True, telemetry=True)  # explicit load
+
+# helper to ensure variables exist for the rest of the script
+YEAR = session.event.year
+EVENT = session.event.EventName
+SESSION_TYPE = session.name
 
 lap1 = session.laps.pick_drivers(DRIVER1).pick_fastest()
 lap2 = session.laps.pick_drivers(DRIVER2).pick_fastest()
