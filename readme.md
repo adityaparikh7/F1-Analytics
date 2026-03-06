@@ -25,9 +25,12 @@ A comprehensive collection of Python scripts for analyzing Formula 1 telemetry a
     *   `fuel_analytics.py`: Fuel consumption analysis.
     *   `overtaking_analytics.py`: Analysis of overtaking maneuvers.
     *   `weather_crossover.py`: Analyze crossover points for wet/dry weather conditions. -->
-*   **Future Work**:
-    *   Adding more advanced machine learning models for performance prediction.
-    *   Expanding the calendar module to include historical season analysis and future race predictions.  
+
+
+## Future Work:
+* Adding more advanced machine learning models for performance prediction.
+* Expanding the calendar module to include historical season analysis and future race predictions.  
+* Making the codebase more modular and user-friendly with a command-line interface or web dashboard.
 
 ## Project Structure
 
@@ -109,7 +112,7 @@ mkdir outputs
 
 ## License
 
-This project is open-source and available under the MIT License.
+This project is source available under the MIT License.
 
 ## Author
 Aditya Parikh - [GitHub](https://github.com/adityaparikh7)
