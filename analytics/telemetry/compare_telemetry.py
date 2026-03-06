@@ -1,5 +1,5 @@
 """
-Compare telemetry of two drivers' fastest laps with:
+Compare telemetry of two drivers' fastest laps for any session with:
  - Speed traces (corner markers, top-speed highlights)
  - Δ-speed trace (where each driver is faster)
  - Gear at corners (smoothed)
@@ -29,11 +29,11 @@ def get_session_config():
     Returns the appropriate session object.
     """
     year = 2026 
-    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+    mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
         event = "Australia"
-        session_type = "Q"
+        session_type = "FP2"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':
@@ -43,8 +43,8 @@ def get_session_config():
 
     raise ValueError(f"Unknown mode: {mode}")
 
-DRIVER1 = '44'  # can be driver number or 'VER', 'HAM', etc.
-DRIVER2 = '3'
+DRIVER1 = '81'  # can be driver number or 'VER', 'HAM', etc.
+DRIVER2 = '1'
 
 # -------------------------
 # Load session and laps
@@ -216,7 +216,7 @@ def get_team_color_safe(team_name, session_obj):
         fallback_map = {
             'Mercedes': '#00D2BE', 'Red Bull': '#0600EF', 'Ferrari': '#DC0000',
             'McLaren': '#FF8700', 'Alpine': '#0090FF', 'Aston Martin': '#006F62',
-            'Kick Sauber': "#1EFF00", 'Williams': '#005AFF', 'Haas': '#FFFFFF', 'Racing Bulls': '#2B4562'
+            'Audi': "#FF5900", 'Williams': '#005AFF', 'Haas': '#FFFFFF', 'Racing Bulls': "#FFF700", 'Cadillac': "#3F3F3F"
         }
         return fallback_map.get(team_name.split()[0], None) or '#1f77b4'
 
@@ -393,7 +393,7 @@ ax_table.set_title(
 # fig.text(0.02, 0.02, "Apex summary:\n" + apex_text, fontsize=9, va='bottom',
 #          ha='left', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
 
-plt.savefig(f'analytics/outputs/telemetry/compare_telemetry_{YEAR}_{EVENT}_{SESSION_TYPE}_{DRIVER1}_vs_{DRIVER2}.png', bbox_inches='tight', dpi=300)
+plt.savefig(f'analytics/outputs/telemetry/dual_driver/compare_telemetry_{YEAR}_{EVENT}_{SESSION_TYPE}_{DRIVER1}_vs_{DRIVER2}.png', bbox_inches='tight', dpi=300)
 # tidy
 plt.tight_layout(rect=(0, 0.01, 1, 0.96))
 plt.show()
