@@ -71,17 +71,17 @@ Most scripts are designed to be run directly. You can modify the parameters (Yea
 
 **Example 1: Compare Qualifying Laps**
 
-1.  Open `analytics/qualifying/compare_quali.py`.
+1.  Open `analytics/telemetry/compare_telemetry.py`.
 2.  Edit the parameters:
     ```python
-    year = 2024
-    event = 'Bahrain Grand Prix'
-    driver1 = 'VER'
+    year = 2026
+    event = 'Australian Grand Prix'
+    driver1 = 'HAM' # 3 letter code for the driver (e.g., 'HAM' for Lewis Hamilton) or number (e.g., 44 for Hamilton)
     driver2 = 'LEC'
     ```
 3.  Run the script:
     ```bash
-    python analytics/qualifying/compare_quali.py
+    python analytics/telemetry/compare_telemetry.py
     ```
 
 **Example 2: Analyze Race Pace**
