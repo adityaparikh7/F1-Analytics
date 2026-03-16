@@ -16,12 +16,13 @@ import matplotlib.ticker as mtick
 import pandas as pd
 import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection
 
 # -------------------------
 # User-config
 # -------------------------
 fastf1.plotting.setup_mpl(mpl_timedelta_support=True, color_scheme='fastf1')
-fastf1.Cache.enable_cache('analytics/cache')  # change as needed
+fastf1.Cache.enable_cache('cache')  # change as needed
 
 def get_session_config():
     """
@@ -32,8 +33,8 @@ def get_session_config():
     mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "Australia"
-        session_type = "FP2"
+        event = "China"
+        session_type = "Sprint"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':
@@ -43,8 +44,8 @@ def get_session_config():
 
     raise ValueError(f"Unknown mode: {mode}")
 
-DRIVER1 = '81'  # can be driver number or 'VER', 'HAM', etc.
-DRIVER2 = '1'
+DRIVER1 = '3'  # can be driver number or 'VER', 'HAM', etc.
+DRIVER2 = '6'
 
 # -------------------------
 # Load session and laps
@@ -74,13 +75,15 @@ team2 = lap2['Team']
 # -------------------------
 # Telemetry (add Distance)
 # -------------------------
-tel1 = lap1.get_car_data().add_distance()  # DataFrame
-tel2 = lap2.get_car_data().add_distance()
+tel1 = lap1.get_telemetry()  # DataFrame
+tel2 = lap2.get_telemetry()
 
 # Ensure Distance columns exist
 for tel in (tel1, tel2):
     if 'Distance' not in tel.columns:
-        raise KeyError("Telemetry missing 'Distance' column.")
+        tel1 = lap1.get_car_data().add_distance()
+        tel2 = lap2.get_car_data().add_distance()
+        break
 
 # Align distance origins to zero for each lap (helps comparison visually)
 tel1['Distance'] = tel1['Distance'] - tel1['Distance'].min()
@@ -220,6 +223,19 @@ def get_team_color_safe(team_name, session_obj):
         }
         return fallback_map.get(team_name.split()[0], None) or '#1f77b4'
 
+def adjust_color_lightness(color, amount=0.5):
+    """
+    Lightens or darkens a hex color. Amount > 1 makes it lighter, < 1 makes it darker.
+    """
+    import matplotlib.colors as mc
+    import colorsys
+    try:
+        c = mc.cnames.get(color, color)
+        c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+        # Ensure it doesn't go below 0 or above 1, but modify lightness
+        return mc.to_hex(colorsys.hls_to_rgb(c[0], max(0, min(1, amount * c[1])), c[2]))
+    except:
+        return color
 
 color1 = get_team_color_safe(team1, session)
 color2 = get_team_color_safe(team2, session)
@@ -228,6 +244,7 @@ if team1 == team2:
     # differentiate styles if same team
     linestyle1, linestyle2 = '-', '--'
     marker1, marker2 = 'o', 's'
+    color2 = adjust_color_lightness(color2, amount=1.5) if adjust_color_lightness(color2, amount=1.5) != '#ffffff' else adjust_color_lightness(color2, amount=0.5)
 
 # -------------------------
 # Top speeds & distances
@@ -242,17 +259,18 @@ top2_dist, top2_speed = tel2.loc[idx_top2,
 # -------------------------
 # Build figure & axes
 # -------------------------
-fig = plt.figure(constrained_layout=False, figsize=(13, 14))
-gs = fig.add_gridspec(5, 1, height_ratios=[2.6, 0.8, 0.9, 0.9, 1], hspace=0.6)
+fig = plt.figure(constrained_layout=False, figsize=(13, 18))
+gs = fig.add_gridspec(6, 1, height_ratios=[2.6, 0.8, 0.9, 0.9, 2.5, 1], hspace=0.6)
 ax_speed = fig.add_subplot(gs[0, 0])   # main speed trace
 ax_delta = fig.add_subplot(gs[1, 0], sharex=ax_speed)  # delta speed
 ax_gear = fig.add_subplot(gs[2, 0], sharex=ax_speed)   # gear at corners
 ax_tb = fig.add_subplot(gs[3, 0], sharex=ax_speed)     # throttle/brake
-ax_table = fig.add_subplot(gs[4, 0])                   # sector table
+ax_track = fig.add_subplot(gs[4, 0])                   # track map minisectors
+ax_table = fig.add_subplot(gs[5, 0])                   # sector table
 
 # Title
 fig.suptitle(
-    f"{EVENT} {YEAR} {SESSION_TYPE} — {driver1_name} ({lap1['LapTime']}) vs {driver2_name} ({lap2['LapTime']})",
+    f"{YEAR} {EVENT} {SESSION_TYPE} — {driver1_name} ({lap1['LapTime']}) vs {driver2_name} ({lap2['LapTime']})",
     fontsize=14, fontweight='semibold'
 )
 
@@ -353,6 +371,45 @@ else:
                ha='center', va='center', transform=ax_tb.transAxes)
     ax_tb.axis('off')
 
+# 4.5) Track Map with Minisector Dominance
+# -------------------------
+num_minisectors = 25
+total_dist = max(tel1['Distance'].max(), tel2['Distance'].max())
+ms_len = total_dist / num_minisectors
+
+for t_df in (tel1, tel2):
+    t_df['Minisector'] = (t_df['Distance'] // ms_len).astype(int) + 1
+
+speed_mean1 = tel1.groupby('Minisector')[speed_col].mean()
+speed_mean2 = tel2.groupby('Minisector')[speed_col].mean()
+
+fastest_ms = pd.Series(index=speed_mean1.index, dtype=int)
+for ms in speed_mean1.index:
+    s1 = speed_mean1.get(ms, 0)
+    s2 = speed_mean2.get(ms, 0)
+    fastest_ms[ms] = 1 if s1 >= s2 else 2
+
+base_ext = tel1 if lap1['LapTime'] < lap2['LapTime'] else tel2
+if 'X' in base_ext.columns and 'Y' in base_ext.columns:
+    x = base_ext['X'].values
+    y = base_ext['Y'].values
+    pts = np.array([x, y]).T.reshape(-1, 1, 2)
+    segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+    
+    seg_colors = [color1 if fastest_ms.get(row['Minisector'], 1) == 1 else color2 for _, row in base_ext.iterrows()][:-1]
+    
+    lc = LineCollection(segs, colors=seg_colors, linewidth=4)
+    ax_track.add_collection(lc)
+    ax_track.axis('equal')
+    ax_track.axis('off')
+    ax_track.set_title('Track Map - Minisector Dominance', fontsize=11, pad=8)
+    
+    leg_lines = [Line2D([0], [0], color=color1, lw=4), Line2D([0], [0], color=color2, lw=4)]
+    ax_track.legend(leg_lines, [f'{driver1_name} faster', f'{driver2_name} faster'], loc='center', bbox_to_anchor=(0.5, -0.05), ncol=2, frameon=False, fontsize=9)
+else:
+    ax_track.text(0.5, 0.5, 'X/Y position data not available for track map', ha='center', va='center', transform=ax_track.transAxes)
+    ax_track.axis('off')
+
 # 5) Sector times table with sector deltas
 ax_table.axis('off')
 sector_labels = ['Sector 1', 'Sector 2', 'Sector 3']
@@ -393,7 +450,7 @@ ax_table.set_title(
 # fig.text(0.02, 0.02, "Apex summary:\n" + apex_text, fontsize=9, va='bottom',
 #          ha='left', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
 
-plt.savefig(f'analytics/outputs/telemetry/dual_driver/compare_telemetry_{YEAR}_{EVENT}_{SESSION_TYPE}_{DRIVER1}_vs_{DRIVER2}.png', bbox_inches='tight', dpi=300)
+plt.savefig(f'analytics/outputs/telemetry/dual_driver/{YEAR}_{EVENT}_{SESSION_TYPE}_{DRIVER1}_vs_{DRIVER2}.png', bbox_inches='tight', dpi=400)
 # tidy
 plt.tight_layout(rect=(0, 0.01, 1, 0.96))
 plt.show()

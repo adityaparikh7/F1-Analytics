@@ -4,12 +4,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-fastf1.Cache.enable_cache("analytics/cache")
+fastf1.Cache.enable_cache("cache")
 
-def plot_race_strategy(year: int, gp: str, session_type: str = 'R'):
+def plot_race_strategy(year: int, gp: str, session_type: str):
     session = fastf1.get_session(year, gp, session_type)
     session.load()
     laps = session.laps
+
+    # Identify SC and VSC laps
+    sc_laps = laps[laps['TrackStatus'].str.contains('4', na=False)]['LapNumber'].unique()
+    vsc_laps = laps[laps['TrackStatus'].str.contains('6', na=False)]['LapNumber'].unique()
 
     stints = laps[["Driver", "Stint", "Compound", "FreshTyre", "LapNumber"]]
     stints = stints.groupby(["Driver", "Stint", "Compound", "FreshTyre"])
@@ -18,8 +22,15 @@ def plot_race_strategy(year: int, gp: str, session_type: str = 'R'):
 
     drivers = [session.get_driver(d)["Abbreviation"] for d in session.drivers]
 
+    plt.style.use('dark_background')
     plotting.setup_mpl()
     fig, ax = plt.subplots(figsize=(10, len(drivers)*0.4 + 2))
+
+    # Highlight SC and VSC periods
+    for lap in sc_laps:
+        ax.axvspan(lap - 0.5, lap + 0.5, color='orange', alpha=0.25, zorder=10, label='Safety Car' if lap == sc_laps[0] else "")
+    for lap in vsc_laps:
+        ax.axvspan(lap - 0.5, lap + 0.5, color='yellow', alpha=0.25, zorder=10, label='VSC' if lap == vsc_laps[0] else "")
 
     for driver in drivers:
         driver_stints = stints.loc[stints["Driver"] == driver]
@@ -51,7 +62,7 @@ def plot_race_strategy(year: int, gp: str, session_type: str = 'R'):
 
             previous_end += length
 
-    ax.set_title(f"{year} {gp} — Tyre Strategy (all drivers)")
+    ax.set_title(f"{year} {gp} {session_type} — Tyre Strategy (all drivers)")
     ax.set_xlabel("Lap Number")
     ax.invert_yaxis()
     ax.spines['top'].set_visible(False)
@@ -75,14 +86,20 @@ def plot_race_strategy(year: int, gp: str, session_type: str = 'R'):
             alpha=0.5, label='Used tyre (semi-transparent)'
         )
     )
+    if len(sc_laps) > 0:
+        legend_elems.append(mpatches.Patch(facecolor='orange', alpha=0.2, label='Safety Car'))
+    if len(vsc_laps) > 0:
+        legend_elems.append(mpatches.Patch(facecolor='yellow', alpha=0.2, label='Virtual Safety Car'))
+        
     ax.legend(handles=legend_elems, loc='upper right')
 
     plt.tight_layout()
-    plt.savefig(f'analytics/outputs/tyre_strategy/{year}_{gp}_tyre_strategy.png', bbox_inches='tight', dpi=300)
+    plt.savefig(f'analytics/outputs/tyre_strategy/2026/{year}_{gp}_{session_type}_tyre_strategy.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 
 if __name__ == "__main__":
-    year = 2019
-    gp = "Brazil Grand Prix"
-    plot_race_strategy(year, gp)
+    year = 2026
+    gp = "China"
+    session_type = "Race"
+    plot_race_strategy(year, gp, session_type)

@@ -16,11 +16,11 @@ def get_session_config():
     Returns the appropriate session object.
     """
     year = 2026  # Default year
-    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+    mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "Bahrain"
-        session_type = "Q"
+        event = "China"
+        session_type = "Race"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':
@@ -38,7 +38,7 @@ def compute_driver_lap_top_speeds(session, driver: str, source: str) -> List[flo
       - "telemetry": use per-lap telemetry maxima from lap.get_car_data()['Speed']
     """
     if source == "speedtrap":
-        laps = session.laps.pick_driver(driver)
+        laps = session.laps.pick_drivers(driver)
         if 'SpeedST' not in laps.columns:
             return []
         # coerce to numeric (in case of strings), drop NaN
@@ -46,7 +46,7 @@ def compute_driver_lap_top_speeds(session, driver: str, source: str) -> List[flo
         return [float(v) for v in vals.dropna().tolist() if np.isfinite(v) and v > 50.0]
 
     # telemetry fallback
-    laps = session.laps.pick_driver(driver)
+    laps = session.laps.pick_drivers(driver)
     speeds: List[float] = []
     for _, lap in laps.iterlaps():
         try:
@@ -107,7 +107,7 @@ def make_heatmap_df(
 
 
 def plot_heatmap(df: pd.DataFrame, title: str, values_note: str, save_path: str | None = None):
-    plotting.setup_mpl(misc_mpl_mods=False)
+    # plotting.setup_mpl(misc_mpl_mods=False)
     sns.set_context("talk")
 
     # Choose a consistent scale across all cells
@@ -152,7 +152,7 @@ def plot_heatmap(df: pd.DataFrame, title: str, values_note: str, save_path: str 
 
     # Sub-note specifying what values are used
     ax.text(
-        0.0, 1.02, values_note,
+        1.05, 1.01, values_note,
         fontsize=9, transform=ax.transAxes, ha='left', va='bottom', color='dimgray'
     )
 
@@ -168,16 +168,16 @@ def main():
     SAVE_PATH = 'analytics/outputs/top_speed'
 
     # Enable cache
-    fastf1.Cache.enable_cache('analytics/cache')
+    fastf1.Cache.enable_cache('cache')
 
     # Load session
     session = get_session_config()
-    session.load(telemetry=True, laps=True, weather=False, messages=False)
+    session.load(telemetry=True, laps=True, weather=False, messages=True)
 
     # Decide value source
     source = detect_speed_source(session)
-    values_note = "Values: official Speed Trap per lap (km/h)" if source == "speedtrap" \
-                  else "Values: per-lap telemetry max speed (km/h)"
+    values_note = "Values: Speed Trap" if source == "speedtrap" \
+                  else "Values: Telemetry Maxima"
 
     event = session.event
     # Construct a title using the event metadata
@@ -187,8 +187,7 @@ def main():
     # Session name might be in event.SessionX or we can just use the session name
     session_name = session.name
 
-    full_event_name = f"{event_name_str} {event_year} {session_name}"
-    title = f"Top Speeds Heatmap — {full_event_name} (Top {TOP_N} per driver + Avg)"
+    title = f"Top Speeds Heatmap — {event_year} {event_name_str} {session_name} (Top {TOP_N} per driver + Avg)"
 
     df = make_heatmap_df(session, top_n=TOP_N, source=source)
 

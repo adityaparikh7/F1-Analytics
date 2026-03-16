@@ -11,8 +11,8 @@ import fastf1
 import fastf1.plotting
 
 # Activate FastF1 colors (keep minimal modifications)
-fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
-fastf1.Cache.enable_cache('analytics/cache')
+# fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
+fastf1.Cache.enable_cache('cache')
 sns.set_theme(style="darkgrid", context="talk")
 
 def get_session_config():
@@ -21,11 +21,11 @@ def get_session_config():
     Returns the appropriate session object.
     """
     year = 2026  # Default year
-    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+    mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "Monaco"
-        session_type = "R"
+        event = "China"
+        session_type = "Race"
         return fastf1.get_session(year, event, session_type)
         
     elif mode == 'TESTING':
@@ -51,11 +51,11 @@ laps = race.laps.pick_quicklaps()
 transformed_laps = laps.copy()
 transformed_laps.loc[:, "LapTime (s)"] = laps["LapTime"].dt.total_seconds()
 
-# Order teams by median lap time (fastest first)
+# Order teams by mean lap time (fastest first)
 team_order = (
     transformed_laps[["Team", "LapTime (s)"]]
     .groupby("Team")
-    .median()["LapTime (s)"]
+    .mean()["LapTime (s)"]
     .sort_values()
     .index
 )
@@ -65,17 +65,29 @@ team_palette = {
     for team in team_order
 }
 
-median_by_team = transformed_laps.groupby("Team")["LapTime (s)"].median()
-fastest_median = median_by_team.min()
+mean_by_team = transformed_laps.groupby("Team")["LapTime (s)"].mean()
+fastest_mean = mean_by_team.min()
 lap_counts = transformed_laps.groupby("Team").size()
 
 def format_lap_time(x, _):
     m, s = divmod(x, 60)
     return f"{int(m)}:{s:05.2f}"
 
+
+compound_palette = {
+    "SOFT": "#FF3333",
+    "MEDIUM": "#FFD700",
+    "HARD": "#FFFFFF",
+    "INTERMEDIATE": "#3CB371",
+    "WET": "#1E90FF"
+}
+
 ###############################################################################
 # TEAM PLOT
 fig, ax = plt.subplots(figsize=(18, 10))
+# black background with white grid
+ax.set_facecolor('black')
+fig.patch.set_facecolor('black')
 
 sns.boxplot(
     data=transformed_laps,
@@ -86,6 +98,8 @@ sns.boxplot(
     width=0.55,
     showcaps=False,
     fliersize=0,
+    showmeans=True,
+    meanprops={"marker": "d", "markerfacecolor": "white", "markeredgecolor": "black", "markersize": 8},
     boxprops=dict(edgecolor="white", linewidth=1),
     whiskerprops=dict(color="white", linewidth=1),
     medianprops=dict(color="white", linewidth=1.5),
@@ -96,26 +110,33 @@ sns.stripplot(
     x="Team",
     y="LapTime (s)",
     order=team_order,
-    color="black",
-    size=3,
-    alpha=0.55,
+    hue="Compound",
+    palette=compound_palette,
+    # color="black",
+    size=3.5,
+    alpha=0.6,
     jitter=0.25,
     ax=ax
 )
 
+legend1 = ax.legend(title='Compound', facecolor='black', edgecolor='white', title_fontsize=12, fontsize=10)
+for text in legend1.get_texts():
+    text.set_color("white")
+legend1.get_title().set_color("white")
+
 for delta, style in [(0.0, 'solid'), (0.5, 'dotted'), (1.0, 'dotted')]:
-    ax.axhline(fastest_median + delta, color='grey', ls=style, lw=0.8, alpha=0.8)
+    ax.axhline(fastest_mean + delta, color='white', ls=style, lw=0.8, alpha=0.8)
 ax.text(
     0.02, 0.02,
-    "Ref: fastest median / +0.5s / +1.0s",
+    "Ref: fastest mean / +0.5s / +1.0s",
     transform=ax.transAxes,
-    color="grey",
+    color="white",
     fontsize=10
 )
 
 for i, team in enumerate(team_order):
-    med = median_by_team[team]
-    delta = med - fastest_median
+    med = mean_by_team[team]
+    delta = med - fastest_mean
     if delta < 1e-3:
         label = f"{med:.2f}s\nBest"
     else:
@@ -131,29 +152,31 @@ for i, team in enumerate(team_order):
         bbox=dict(boxstyle="round,pad=0.25", fc='black', ec='none', alpha=0.55)
     )
 
-ax.set_xticklabels([f"{t}\n(n={lap_counts[t]})" for t in team_order], rotation=0)
+ax.tick_params(axis='y', colors='white')
+
+ax.set_xticklabels([f"{t}\n(n={lap_counts[t]})" for t in team_order], rotation=0, color='white')
 ax.invert_yaxis()
 ax.yaxis.set_major_formatter(FuncFormatter(format_lap_time))
-ax.set_ylabel("Lap Time (m:ss.xx)")
+ax.set_ylabel("Lap Time (m:ss.xx)", color='white')
 ax.set_xlabel(None)
-plt.title(f"{event} {year} - {session} - Team Race Pace", fontsize=20, pad=14)
+plt.title(f"{event} {year} - {session} - Team Race Pace", fontsize=20, pad=14, color='white')
 ax.grid(axis='y', color='0.3', alpha=0.3)
 ax.grid(axis='x', visible=False)
 plt.tight_layout()
-plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_{session.replace(' ', '_')}_team_pace.png", bbox_inches='tight', dpi=300)
+plt.savefig(f"analytics/outputs/race_pace/2026/{event.replace(' ', '_')}_{session.replace(' ', '_')}_{year}_team_pace.png", bbox_inches='tight', dpi=400)
 
 ###############################################################################
 # DRIVER PLOT
-# Driver order by median lap time
+# Driver order by mean lap time
 driver_order = (
     transformed_laps[["Driver", "LapTime (s)"]]
     .groupby("Driver")
-    .median()["LapTime (s)"]
+    .mean()["LapTime (s)"]
     .sort_values()
     .index
 )
-driver_medians = transformed_laps.groupby("Driver")["LapTime (s)"].median()
-driver_fastest = driver_medians.min()
+driver_means = transformed_laps.groupby("Driver")["LapTime (s)"].mean()
+driver_fastest = driver_means.min()
 driver_counts = transformed_laps.groupby("Driver").size()
 
 # Map driver to team color
@@ -164,6 +187,8 @@ driver_palette = {
 }
 
 fig2, ax2 = plt.subplots(figsize=(25, 12))
+ax2.set_facecolor('black')
+fig2.patch.set_facecolor('black')
 
 # Use boxplot + swarm for distribution
 sns.boxplot(
@@ -175,6 +200,8 @@ sns.boxplot(
     width=0.6,
     showcaps=False,
     fliersize=0,
+    showmeans=True,
+    meanprops={"marker": "d", "markerfacecolor": "white", "markeredgecolor": "black", "markersize": 8},
     boxprops=dict(edgecolor="white", linewidth=0.9),
     whiskerprops=dict(color="white", linewidth=0.9),
     medianprops=dict(color="white", linewidth=1.4),
@@ -186,12 +213,19 @@ sns.stripplot(
     x="Driver",
     y="LapTime (s)",
     order=driver_order,
-    color="black",
-    size=2.8,
-    alpha=0.5,
+    hue="Compound",
+    # color="black",
+    palette=compound_palette,
+    size=3.5,
+    alpha=0.6,
     jitter=0.25,
     ax=ax2
 )
+
+legend2 = ax2.legend(title='Compound', facecolor='black', edgecolor='white', title_fontsize=12, fontsize=10)
+for text in legend2.get_texts():
+    text.set_color("white")
+legend2.get_title().set_color("white")
 
 # Reference lines (same deltas as team plot)
 for delta, style in [(0.0, 'solid'), (0.5, 'dotted'), (1.0, 'dotted')]:
@@ -199,7 +233,7 @@ for delta, style in [(0.0, 'solid'), (0.5, 'dotted'), (1.0, 'dotted')]:
 
 # Annotate driver medians (+delta)
 for i, drv in enumerate(driver_order):
-    med = driver_medians[drv]
+    med = driver_means[drv]
     delta = med - driver_fastest
     lbl = f"{med:.2f}s" if delta < 1e-3 else f"{med:.2f}s\n+{delta:.2f}"
     ax2.text(
@@ -212,19 +246,170 @@ for i, drv in enumerate(driver_order):
         bbox=dict(boxstyle="round,pad=0.25", fc='black', ec='none', alpha=0.5)
     )
 
+ax2.tick_params(axis='y', colors='white')
+
 # X tick labels with count + team
 ax2.set_xticklabels([
     f"{drv}\n{driver_team_map.get(drv,'')}\n(n={driver_counts[drv]})"
     for drv in driver_order
-], rotation=0)
+], rotation=0, color='white')
 
 ax2.invert_yaxis()
 ax2.yaxis.set_major_formatter(FuncFormatter(format_lap_time))
-ax2.set_ylabel("Lap Time (m:ss.xx)")
+ax2.set_ylabel("Lap Time (m:ss.xx)", color='white')
 ax2.set_xlabel(None)
-ax2.set_title(f"{event} {year} - {session} - Driver Race Pace", fontsize=20, pad=16)
+ax2.set_title(f"{event} {year} - {session} - Driver Race Pace", fontsize=20, pad=16, color='white')
 ax2.grid(axis='y', color='0.3', alpha=0.3)
 ax2.grid(axis='x', visible=False)
 plt.tight_layout()
-plt.savefig(f"analytics/outputs/race_pace/{year}_{event.replace(' ', '_')}_{session.replace(' ', '_')}_driver_pace.png", bbox_inches='tight', dpi=300)
+plt.savefig(f"analytics/outputs/race_pace/2026/{event.replace(' ', '_')}_{session.replace(' ', '_')}_{year}_driver_pace.png", bbox_inches='tight', dpi=400)
+
+
+###############################################################################
+# TYRE COMPOUND ANALYSIS
+# fig3, ax3 = plt.subplots(figsize=(18, 10))
+
+# sns.boxplot(
+#     data=transformed_laps,
+#     x="Team",
+#     y="LapTime (s)",
+#     hue="Compound",
+#     order=team_order,
+#     palette=compound_palette,
+#     fliersize=0,
+#     width=0.6,
+#     ax=ax3
+# )
+
+# ax3.invert_yaxis()
+# ax3.yaxis.set_major_formatter(FuncFormatter(format_lap_time))
+
+# ax3.set_title(
+#     f"{event} {year} - {session} - Team Pace by Tyre Compound",
+#     fontsize=20,
+#     pad=15
+# )
+
+# ax3.set_ylabel("Lap Time (m:ss.xx)")
+# ax3.set_xlabel(None)
+
+# ax3.legend(title="Compound")
+
+# plt.tight_layout()
+# plt.savefig(
+#     f"analytics/outputs/race_pace/2026/{year}_{event.replace(' ', '_')}_{session.replace(' ', '_')}_compound_pace.png",
+#     dpi=300
+# )
+
+###############################################################################
+# STINT PACE ANALYSIS
+
+# stint_pace = (
+#     transformed_laps
+#     .groupby(["Team", "Stint"])["LapTime (s)"]
+#     .mean()
+#     .reset_index()
+# )
+
+# fig4, ax4 = plt.subplots(figsize=(18, 10))
+
+# sns.barplot(
+#     data=stint_pace,
+#     x="Team",
+#     y="LapTime (s)",
+#     hue="Stint",
+#     order=team_order,
+#     palette="viridis",
+#     ax=ax4
+# )
+
+# ax4.invert_yaxis()
+# ax4.yaxis.set_major_formatter(FuncFormatter(format_lap_time))
+
+# ax4.set_title(
+#     f"{event} {year} - {session} - Stint Pace Comparison",
+#     fontsize=20,
+#     pad=15
+# )
+
+# ax4.set_ylabel("Average Lap Time")
+# ax4.set_xlabel(None)
+
+# plt.tight_layout()
+# plt.savefig(
+#     f"analytics/outputs/race_pace/2026/{year}_{event.replace(' ', '_')}_{session.replace(' ', '_')}_stint_pace.png",
+#     dpi=300
+# )
+
 plt.show()
+
+# print pace ranking and delta to fastest for teams and drivers
+# print("Team Pace Ranking:")
+# for i, team in enumerate(team_order):
+#     med = mean_by_team[team]
+#     delta = med - fastest_mean
+#     print(f"{i+1}. {team}: {med:.2f}s (+{delta:.2f}s)")
+print("\nDriver Pace Ranking:")
+for i, drv in enumerate(driver_order):
+    med = driver_means[drv]
+    delta = med - driver_fastest
+    print(f"{i+1}. {drv} ({driver_team_map.get(drv,'')}): {med:.2f}s (+{delta:.2f}s)")
+
+###############################################################################
+# RACE PACE RATING
+team_delta = mean_by_team - fastest_mean
+def pace_rating(delta):
+    if delta <= 0.2:
+        return "Elite"
+    elif delta <= 1:
+        return "Competitive"
+    elif delta <= 2.5:
+        return "Midfield"
+    elif delta <= 3:
+        return "Backmarkers"
+    else:        
+        return "Off Pace"
+
+
+# race_pace_rating = team_delta.apply(pace_rating)
+# print("\nRace Pace Ratings:")
+# for team in team_order:
+#     print(f"{team}: {race_pace_rating[team]} (delta +{team_delta[team]:.2f}s)")
+
+
+###############################################################################
+# PACE RANK TABLE
+
+pace_rank_table = (
+    mean_by_team
+    .sort_values()
+    .reset_index()
+)
+
+pace_rank_table.columns = ["Team", "Mean Lap Time (s)"]
+
+pace_rank_table["Delta (s)"] = pace_rank_table["Mean Lap Time (s)"] - \
+    fastest_mean
+pace_rank_table["Rating"] = pace_rank_table["Delta (s)"].apply(pace_rating)
+
+pace_rank_table["Mean Lap Time"] = pace_rank_table["Mean Lap Time (s)"].apply(
+    lambda x: format_lap_time(x, None)
+)
+
+pace_rank_table["Delta"] = pace_rank_table["Delta (s)"].apply(
+    lambda x: f"+{x:.2f}"
+)
+
+pace_rank_table.insert(0, "Rank", range(1, len(pace_rank_table) + 1))
+
+pace_rank_table = pace_rank_table[
+    ["Rank", "Team", "Mean Lap Time", "Delta", "Rating"]
+]
+
+
+print("\nRace Pace Ranking\n")
+print(pace_rank_table.to_string(index=False))
+# pace_rank_table.to_csv(
+#     f"analytics/outputs/race_pace/2026/{event.replace(' ', '_')}_{session.replace(' ', '_')}_{year}_pace_ranking.csv",
+#     index=False
+# )

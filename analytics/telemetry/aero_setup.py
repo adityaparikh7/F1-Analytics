@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
-fastf1.Cache.enable_cache('analytics/cache')
+fastf1.Cache.enable_cache('cache')
 
 # ------------------------------------------------------------
 # Global Style (Visual Identity)
@@ -39,11 +39,11 @@ def get_session_config():
     Returns the appropriate session object.
     """
     year = 2026  # Default year
-    mode = 'TESTING'  # Options: 'RACE', 'TESTING'
+    mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "Bahrain"
-        session_type = "Q"
+        event = "China"
+        session_type = "Race"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':
@@ -233,13 +233,12 @@ def plot_aero_map(session):
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
     plt.savefig(
-        f"analytics/outputs/aero_maps/aero_map_{year}_{grand_prix}_{session_type}.png",
+        f"analytics/outputs/aero_maps/2026/aero_map_{year}_{grand_prix}_{session_type}.png",
         dpi=300,
         bbox_inches="tight"
     )
 
     plt.show()
-
 
 def plot_aero_map_plotly(session):
     
