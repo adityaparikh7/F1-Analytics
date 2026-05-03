@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Enable cache for faster repeated access
-fastf1.Cache.enable_cache('analytics/cache')  # Ensure you have a 'cache' folder or change path
+fastf1.Cache.enable_cache('cache')  # Ensure you have a 'cache' folder or change path
 
 def get_driving_phases(year):
     """
@@ -124,13 +124,13 @@ def plot_driving_phases(df, year):
     ax.xaxis.grid(True, linestyle='--', alpha=0.7)
 
     # save plot to file
-    plt.savefig(f'analytics/outputs/driving_phases/driving_phases_{year}.png', bbox_inches='tight')
+    plt.savefig(f'analytics/outputs/driving_phases/driving_phases_{year}.png', bbox_inches='tight', dpi=300)
     
     plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
     # Analyze the 2025 season
-    season_year = 2025
+    season_year = 2026
     df_results = get_driving_phases(season_year)
     plot_driving_phases(df_results, season_year)

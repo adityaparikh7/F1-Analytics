@@ -9,8 +9,7 @@ from matplotlib.colors import ListedColormap
 # -------------------------
 # User-config
 # -------------------------
-fastf1.plotting.setup_mpl(mpl_timedelta_support=True, color_scheme='fastf1')
-fastf1.Cache.enable_cache('analytics/cache')  # Ensure this path exists or matches your setup
+fastf1.Cache.enable_cache('cache')  # Ensure this path exists or matches your setup
 
 
 def get_session_config():
@@ -18,12 +17,12 @@ def get_session_config():
     Helper to select between a Race Session or Pre-Season Testing.
     Returns the appropriate session object.
     """
-    year = 2025 
+    year = 2026
     mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "Monza"
-        session_type = "Q"
+        event = "China"
+        session_type = "R"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':
@@ -36,7 +35,7 @@ def get_session_config():
 # -------------------------
 # Load session and laps
 # -------------------------
-DRIVER = '4'  # Can be driver number or name like 'VER', 'HAM', etc.
+DRIVER = '12'  # Can be driver number or name like 'VER', 'HAM', etc.
 session = get_session_config()
 print(f"Loading {session.name}...")
 session.load(laps=True, telemetry=True)
@@ -49,7 +48,7 @@ SESSION_TYPE = session.name
 
 
 print(f"Analyzing driver {DRIVER}...")
-lap = session.laps.pick_driver(DRIVER).pick_fastest()
+lap = session.laps.pick_drivers(DRIVER).pick_fastest()
 
 if lap is None:
     raise ValueError(f"Could not find fastest lap for driver {DRIVER}.")
@@ -76,6 +75,7 @@ gear_col = safe_col(tel, 'nGear', 'Gear')
 throttle_col = safe_col(tel, 'Throttle')
 brake_col = safe_col(tel, 'Brake', 'BrakePressure', 'BrakePct')
 drs_col = safe_col(tel, 'DRS')
+# straighline_mode_col = safe_col(tel, 'StraightLineMode')  # If available, can indicate DRS zones more accurately
 
 if not speed_col:
     raise ValueError("Speed telemetry missing.")
@@ -107,8 +107,14 @@ ax_table = fig.add_subplot(gs[3])
 # Get Team Color
 try:
     color = fastf1.plotting.get_team_color(team_name, session=session)
-except:
-    color = 'white'
+except Exception:
+    fallback_map = {
+        'Mercedes': '#00D2BE', 'Red Bull': '#0600EF', 'Ferrari': '#DC0000',
+        'McLaren': '#FF8700', 'Alpine': '#0090FF', 'Aston Martin': '#006F62',
+        'Audi': "#FF5900", 'Williams': '#005AFF', 'Haas': '#FFFFFF', 'Racing Bulls': "#FFF700", 'Cadillac': "#3F3F3F"
+    }
+    color = fallback_map.get(team_name.split()[0], None) or '#1f77b4'
+    
 
 # Title
 fig.suptitle(f"{driver_name} ({team_name}) - {session.event['EventName']} {session.event.year}\nFastest Lap: {lap_time}", 
@@ -180,6 +186,12 @@ if drs_col:
     # A fill usually looks better:
     ax_control.fill_between(tel['Distance'], 0, 100, where=(tel[drs_col] > 8), 
                             color='orange', alpha=0.15, label='DRS Active')
+    
+# if straighline_mode_col:
+#     # If we have a straight line mode column, we can also highlight those areas (often indicates DRS zones more accurately)
+#     straight_mode = tel[tel[straighline_mode_col] == 1]
+#     ax_control.fill_between(tel['Distance'], 0, 100, where=(tel[straighline_mode_col] == 1), 
+#                             color='blue', alpha=0.1, label='Straight Line Mode')
 
 ax_control.set_ylabel('Input %')
 ax_control.set_ylim(-5, 105)
@@ -228,8 +240,7 @@ for (row, col), cell in table.get_celld().items():
         cell.set_text_props(fontweight='bold', color='lightgrey')
 
 # Save
-# output_path = f"analytics/outputs/telemetry/driver_telemetry_{session.event.year}_{session.event['EventName']}_{DRIVER}.png"
-output_path = f"analytics/outputs/telemetry/driver_telemetry_{YEAR}_{EVENT}_{SESSION_TYPE}_{DRIVER}.png"
+output_path = f"analytics/outputs/telemetry/single_driver/driver_telemetry_{YEAR}_{EVENT}_{SESSION_TYPE}_{DRIVER}.png"
 print(f"Saving plot to {output_path}")
 plt.savefig(output_path, dpi=300, bbox_inches='tight')
 plt.show()

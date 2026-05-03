@@ -19,8 +19,8 @@ def get_session_config():
     mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "China"
-        session_type = "Race"
+        event = "Miami"
+        session_type = "Sprint"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':

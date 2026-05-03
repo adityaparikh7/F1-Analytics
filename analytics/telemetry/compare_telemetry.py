@@ -33,8 +33,8 @@ def get_session_config():
     mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "China"
-        session_type = "Sprint"
+        event = "Japan"
+        session_type = "Q"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':
@@ -44,8 +44,8 @@ def get_session_config():
 
     raise ValueError(f"Unknown mode: {mode}")
 
-DRIVER1 = '3'  # can be driver number or 'VER', 'HAM', etc.
-DRIVER2 = '6'
+DRIVER1 = '16'  # can be driver number or 'VER', 'HAM', etc.
+DRIVER2 = '44'
 
 # -------------------------
 # Load session and laps

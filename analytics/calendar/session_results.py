@@ -17,8 +17,8 @@ def get_session_config():
     mode = 'RACE'  # Options: 'RACE', 'TESTING'
 
     if mode == 'RACE':
-        event = "China"
-        session_type = "R"
+        event = "Miami"
+        session_type = "SQ"
         return fastf1.get_session(year, event, session_type)
 
     elif mode == 'TESTING':
@@ -61,18 +61,32 @@ def print_session_results():
     laps = session.laps
     print(f"\n--- {session.event.year} {session.event['EventName']} {session.name} Results ---")
     
-    # Determine if the session is a race/sprint or practice/qualifying
+    # Determine the session type bounds
     is_race = session.name in ['Race', 'Sprint']
+    is_quali = 'Qualifying' in session.name or session.name == 'Sprint Shootout'
     
     if is_race:
-        print(f"{'Pos':>3} | {'Driver':<20} | {'Laps':>4} | {'Time/Gap':<12} | {'Status'}")
-        print("-" * 60)
+        print(f"{'Pos':>3} | {'Driver':<20} | {'Team':<15} | {'Grid':>4} | {'Pts':>4} | {'Laps':>4} | {'Time/Gap':<12} | {'Status'}")
+        print("-" * 100)
         
         for _, row in results.iterrows():
-            pos = int(row['Position']) if not pd.isnull(row['Position']) else "NC"
+            pos = str(int(row['Position'])) if not pd.isnull(row['Position']) else "NC"
             name = row['FullName']
+            team = row['TeamName']
             driver = row['Abbreviation']
             status = row['Status']
+            points = row.get('Points', 0)
+            pts_str = str(int(points)) if pd.notnull(points) and points > 0 else "-"
+            grid = row.get('GridPosition', 0)
+            grid_str = str(int(grid)) if pd.notnull(grid) and grid > 0 else "-"
+            
+            # Grid change formatting
+            if grid_str != "-" and pos != "NC":
+                grid_change = int(grid) - int(pos)
+                if grid_change > 0:
+                    grid_str = f"{grid_str} (\u2191{grid_change})"
+                elif grid_change < 0:
+                    grid_str = f"{grid_str} (\u2193{abs(grid_change)})"
             
             # Number of laps completed by this driver
             driver_laps = laps.pick_drivers(driver)
@@ -83,23 +97,43 @@ def print_session_results():
             if pd.isnull(race_time):
                 time_str = "No Time"
             else:
-                # If pos == 1, it's the total race time, otherwise the delta
-                # fastf1 results['Time'] handles this, but it's a timedelta
                 time_str = format_timedelta(race_time)
-                if pos != 1 and time_str != "No Time":
+                if pos != "1" and time_str != "No Time":
                     time_str = f"+{time_str}"
 
-            print(f"{str(pos):>3} | {name:<20} | {laps_completed:>4} | {time_str:<12} | {status}")
+            print(f"{pos:>3} | {name:<20} | {team[:15]:<15} | {grid_str:>10} | {pts_str:>4} | {laps_completed:>4} | {time_str:<12} | {status}")
             
+    elif is_quali:
+        print(f"{'Pos':>3} | {'Driver':<20} | {'Team':<15} | {'Q1 Time':<11} | {'Q2 Time':<11} | {'Q3 Time':<11} | {'Laps'}")
+        print("-" * 95)
+        
+        for _, row in results.iterrows():
+            pos = str(int(row['Position'])) if not pd.isnull(row['Position']) else "NC"
+            name = row['FullName']
+            team = row['TeamName']
+            driver = row['Abbreviation']
+            
+            # Get total laps completed for Quali
+            driver_laps = laps.pick_drivers(driver)
+            laps_completed = len(driver_laps)
+            
+            # Formatting Q1, Q2, Q3 if available columns exist (sprint shootouts have SQ1/SQ2/SQ3 represented as Q1/Q2/Q3 in pandas)
+            q1 = format_timedelta(row.get('Q1', pd.NaT)) if 'Q1' in row else ""
+            q2 = format_timedelta(row.get('Q2', pd.NaT)) if 'Q2' in row else ""
+            q3 = format_timedelta(row.get('Q3', pd.NaT)) if 'Q3' in row else ""
+                
+            print(f"{pos:>3} | {name:<20} | {team[:15]:<15} | {q1:<11} | {q2:<11} | {q3:<11} | {laps_completed:>4}")
+
     else:
-        print(f"{'Pos':>3} | {'Driver':<20} | {'Laps':>4} | {'Fastest Lap':<11} | {'Gap'}")
-        print("-" * 60)
+        print(f"{'Pos':>3} | {'Driver':<20} | {'Team':<15} | {'Laps':>4} | {'Fastest Lap':<11} | {'Gap'}")
+        print("-" * 80)
         
         session_fastest_lap = laps['LapTime'].min()
         
         for _, row in results.iterrows():
-            pos = int(row['Position']) if not pd.isnull(row['Position']) else "NC"
+            pos = str(int(row['Position'])) if not pd.isnull(row['Position']) else "NC"
             name = row['FullName']
+            team = row['TeamName']
             driver = row['Abbreviation']
             
             # Get fastest lap and laps completed for the individual driver
@@ -119,12 +153,8 @@ def print_session_results():
                 fastest_lap_str = "No Time"
                 delta_str = ""
                 
-            print(f"{str(pos):>3} | {name:<20} | {laps_completed:>4} | {fastest_lap_str:<11} | {delta_str}")
+            print(f"{pos:>3} | {name:<20} | {team[:15]:<15} | {laps_completed:>4} | {fastest_lap_str:<11} | {delta_str}")
 
 if __name__ == '__main__':
     # Example usage:
     print_session_results()
-
-
-
-
