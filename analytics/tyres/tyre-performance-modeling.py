@@ -26,14 +26,14 @@ from typing import Tuple, Dict
 pio.renderers.default = "browser"
 
 # Configure FastF1
-fastf1.Cache.enable_cache("analytics/cache")
+fastf1.Cache.enable_cache("cache")
 fastf1.plotting.setup_mpl(mpl_timedelta_support=True, color_scheme="fastf1")
 
 # ---------- CONFIG ----------
 YEAR = 2025
-RACE = "Qatar"
+RACE = "Miami"
 EVENT = "R"           # R/Q/F
-DRIVER = "1"         # number OR 3-letter code
+DRIVER = "12"         # number OR 3-letter code
 MIN_POINTS_FOR_FIT = 4
 BOOTSTRAP_ITER = 300
 # ---------------------------
@@ -312,37 +312,37 @@ if sector_cols:
     print(avg_sector.to_markdown(index=False))
 
 # --- INTERACTIVE: Plotly overview of lap times and fitted curves across stints ---
-fig = go.Figure()
-compound_order = sorted(set([k[0] for k in fit_results.keys()]))
-for key, res in fit_results.items():
-    compound, stint = key
-    df = res["laps_df"]
-    colname = f"{compound} - stint {stint}"
-    color = compound_map.get(compound.upper(), None)
-    # scatter raw points
-    fig.add_trace(go.Scatter(
-        x=df["StintLap"],
-        y=df["LapTime (s)"],
-        mode="markers",
-        marker=dict(size=7, opacity=0.6),
-        name=f"{colname} obs",
-        hovertext=df.apply(
-            lambda r: f"Lap {int(r.LapNumber)} — {r['LapTime (s)']:.3f}s", axis=1)
-    ))
-    # fitted median and CI
-    band = bootstrap_bands[key]
-    fig.add_trace(go.Scatter(x=band["x_fit"], y=band["median"],
-                  mode="lines", name=f"{colname} fit", line=dict(width=3)))
-    fig.add_trace(go.Scatter(x=band["x_fit"], y=band["hi"], mode="lines",
-                  name=f"{colname} hi", line=dict(width=0), showlegend=False))
-    fig.add_trace(go.Scatter(x=band["x_fit"], y=band["lo"], mode="lines",
-                  name=f"{colname} lo", fill='tonexty', line=dict(width=0), showlegend=False))
+# fig = go.Figure()
+# compound_order = sorted(set([k[0] for k in fit_results.keys()]))
+# for key, res in fit_results.items():
+#     compound, stint = key
+#     df = res["laps_df"]
+#     colname = f"{compound} - stint {stint}"
+#     color = compound_map.get(compound.upper(), None)
+#     # scatter raw points
+#     fig.add_trace(go.Scatter(
+#         x=df["StintLap"],
+#         y=df["LapTime (s)"],
+#         mode="markers",
+#         marker=dict(size=7, opacity=0.6),
+#         name=f"{colname} obs",
+#         hovertext=df.apply(
+#             lambda r: f"Lap {int(r.LapNumber)} — {r['LapTime (s)']:.3f}s", axis=1)
+#     ))
+#     # fitted median and CI
+#     band = bootstrap_bands[key]
+#     fig.add_trace(go.Scatter(x=band["x_fit"], y=band["median"],
+#                   mode="lines", name=f"{colname} fit", line=dict(width=3)))
+#     fig.add_trace(go.Scatter(x=band["x_fit"], y=band["hi"], mode="lines",
+#                   name=f"{colname} hi", line=dict(width=0), showlegend=False))
+#     fig.add_trace(go.Scatter(x=band["x_fit"], y=band["lo"], mode="lines",
+#                   name=f"{colname} lo", fill='tonexty', line=dict(width=0), showlegend=False))
 
-fig.update_yaxes(autorange="reversed", title_text="Lap Time (s)")
-fig.update_xaxes(title_text="Lap in Stint")
-fig.update_layout(title=f"Tyre degradation fits — Driver {DRIVER} | {YEAR} {RACE}", legend=dict(
-    itemsizing='constant'))
-fig.show()
+# fig.update_yaxes(autorange="reversed", title_text="Lap Time (s)")
+# fig.update_xaxes(title_text="Lap in Stint")
+# fig.update_layout(title=f"Tyre degradation fits — Driver {DRIVER} | {YEAR} {RACE}", legend=dict(
+#     itemsizing='constant'))
+# fig.show()
 
 # --- PRINT SUMMARY STATISTICS ---
 print("\nFit summary (params: L0, a, b, c):")

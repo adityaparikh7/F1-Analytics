@@ -100,6 +100,6 @@ def plot_race_strategy(year: int, gp: str, session_type: str):
 
 if __name__ == "__main__":
     year = 2026
-    gp = "China"
+    gp = "Miami"
     session_type = "Race"
     plot_race_strategy(year, gp, session_type)

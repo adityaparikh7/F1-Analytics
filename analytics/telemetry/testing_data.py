@@ -128,8 +128,8 @@ def plot_testing_tyre_strategy(year, test_number, session_number):
 
 if __name__ == "__main__":
     # Attempt to load data
-    year = 2025
-    test_number = 1
+    year = 2026
+    test_number = 2
     session_number = 1
     success = plot_testing_tyre_strategy(year, test_number, session_number)
     
