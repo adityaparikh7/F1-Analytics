@@ -134,7 +134,7 @@ const StrategyBoardPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
                     <text
                       x={x + w / 2}
                       y={driverIdx * rowHeight + barHeight / 2 + 5}
-                      fill={stint.compound === 'HARD' ? '#0A0A0C' : '#0A0A0C'}
+                      fill={stint.compound === 'HARD' || stint.compound === 'MEDIUM' || stint.compound === 'INTERMEDIATE' ? '#0A0A0C' : '#F0F0F0'}
                       textAnchor="middle"
                       fontSize={9}
                       fontWeight={600}

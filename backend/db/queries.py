@@ -80,13 +80,10 @@ def get_stints(session_key: str, driver: str | None = None) -> list[dict]:
             MIN(lap_number) AS start_lap,
             MAX(lap_number) AS end_lap,
             COUNT(*) AS lap_count,
-            AVG(lap_time) AS avg_lap_time,
-            MIN(lap_time) AS best_lap_time
+            AVG(CASE WHEN (is_pit_out_lap = false OR is_pit_out_lap IS NULL) AND (is_pit_in_lap = false OR is_pit_in_lap IS NULL) THEN lap_time ELSE NULL END) AS avg_lap_time,
+            MIN(CASE WHEN (is_pit_out_lap = false OR is_pit_out_lap IS NULL) AND (is_pit_in_lap = false OR is_pit_in_lap IS NULL) THEN lap_time ELSE NULL END) AS best_lap_time
         FROM laps
-        WHERE session_key = ?
-            AND lap_time IS NOT NULL
-            AND (is_pit_out_lap = false OR is_pit_out_lap IS NULL)
-            AND (is_pit_in_lap = false OR is_pit_in_lap IS NULL)
+        WHERE session_key = ? AND stint IS NOT NULL
     """
     params: list = [session_key]
     if driver:
