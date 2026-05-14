@@ -180,6 +180,9 @@ export const api = {
     return request<TelemetryResponse>(`/sessions/${key}/telemetry?${params}`);
   },
 
+  getCircuitInfo: (key: string) =>
+    request<CornerData[]>(`/sessions/${key}/circuit`),
+
   // Standings
   getDriverStandings: (year: number, round?: number) => {
     const params = new URLSearchParams({ year: String(year) });

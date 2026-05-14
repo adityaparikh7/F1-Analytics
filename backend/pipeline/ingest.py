@@ -326,3 +326,34 @@ def fetch_telemetry(
 
     df = df.replace({np.nan: None})
     return df.to_dict(orient="records")
+
+def fetch_circuit_info(
+    year: int,
+    round_number: int | None = None,
+    event: str | None = None,
+    session_type: str = "R",
+) -> list[dict]:
+    """Fetch corner data for a given circuit."""
+    _init_fastf1()
+
+    identifier = round_number if round_number is not None else event
+    session = fastf1.get_session(year, identifier, session_type)
+    session.load(laps=False, telemetry=False, weather=False, messages=False)
+
+    try:
+        circuit_info = session.get_circuit_info()
+        corners = circuit_info.corners
+        if corners.empty:
+            return []
+
+        df = pd.DataFrame({
+            "number": pd.to_numeric(corners["Number"], errors="coerce").astype("Int64"),
+            "letter": corners.get("Letter").astype(str) if "Letter" in corners.columns else None,
+            "angle": corners.get("Angle").values if "Angle" in corners.columns else None,
+            "distance": corners.get("Distance").values if "Distance" in corners.columns else None,
+        })
+        df = df.replace({np.nan: None})
+        return df.to_dict(orient="records")
+    except Exception as exc:
+        logger.warning("Failed to fetch circuit info: %s", exc)
+        return []

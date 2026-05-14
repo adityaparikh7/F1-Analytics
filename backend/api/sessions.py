@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from backend.db import queries
-from backend.pipeline.ingest import ingest_session, ingest_calendar
+from backend.pipeline.ingest import ingest_session, ingest_calendar, fetch_circuit_info
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,24 @@ async def get_session_stints(
     if not queries.session_exists(session_key):
         raise HTTPException(404, f"Session not found: {session_key}")
     return queries.get_stints(session_key, driver)
+
+
+@router.get("/sessions/{session_key}/circuit")
+async def get_session_circuit(session_key: str):
+    """Get circuit corner markers for a session."""
+    try:
+        parts = session_key.split("_")
+        year = int(parts[0])
+        round_number = int(parts[1])
+        session_type = parts[2]
+    except (ValueError, IndexError):
+        raise HTTPException(400, f"Invalid session_key format: {session_key}")
+
+    try:
+        return fetch_circuit_info(year, round_number, session_type=session_type)
+    except Exception as exc:
+        logger.error("Failed to fetch circuit info: %s", exc, exc_info=True)
+        raise HTTPException(500, f"Failed to fetch circuit info: {exc}")
 
 
 # ── Ingestion ──────────────────────────────────────────────────────────
