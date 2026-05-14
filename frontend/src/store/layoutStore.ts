@@ -61,14 +61,16 @@ function persistToStorage(state: { currentLayout: Layout[]; activePanels: PanelI
 // Default layout for fresh installs
 const DEFAULT_PANELS: PanelInstance[] = [
   { instanceId: 'session-results_default', panelTypeId: 'session-results', config: {} },
+  { instanceId: 'track-map_default', panelTypeId: 'track-map', config: {} },
   { instanceId: 'lap-distribution_default', panelTypeId: 'lap-distribution', config: {} },
   { instanceId: 'strategy-board_default', panelTypeId: 'strategy-board', config: {} },
 ];
 
 const DEFAULT_LAYOUT: Layout[] = [
-  { i: 'session-results_default', x: 0, y: 0, w: 12, h: 5, minW: 6, minH: 3 },
-  { i: 'lap-distribution_default', x: 0, y: 5, w: 6, h: 5, minW: 4, minH: 3 },
-  { i: 'strategy-board_default', x: 6, y: 5, w: 6, h: 5, minW: 6, minH: 3 },
+  { i: 'session-results_default', x: 0, y: 0, w: 6, h: 5, minW: 6, minH: 3 },
+  { i: 'track-map_default', x: 6, y: 0, w: 6, h: 5, minW: 4, minH: 3 },
+  { i: 'lap-distribution_default', x: 0, y: 5, w: 6, h: 4, minW: 4, minH: 3 },
+  { i: 'strategy-board_default', x: 6, y: 5, w: 6, h: 4, minW: 6, minH: 3 },
 ];
 
 export const useLayoutStore = create<LayoutState>((set, get) => ({

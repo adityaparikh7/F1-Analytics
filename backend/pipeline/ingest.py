@@ -298,17 +298,10 @@ def fetch_telemetry(
     else:
         selected_lap = driver_laps[driver_laps["LapNumber"] == int(lap)].iloc[0]
 
-    telemetry = selected_lap.get_car_data().add_distance()
-
-    # Also get position data for track map
     try:
-        pos_data = selected_lap.get_pos_data()
-        telemetry = telemetry.merge(
-            pos_data[["Date", "X", "Y"]],
-            on="Date",
-            how="left",
-        )
+        telemetry = selected_lap.get_telemetry()
     except Exception:
+        telemetry = selected_lap.get_car_data().add_distance()
         telemetry["X"] = None
         telemetry["Y"] = None
 
@@ -338,7 +331,7 @@ def fetch_circuit_info(
 
     identifier = round_number if round_number is not None else event
     session = fastf1.get_session(year, identifier, session_type)
-    session.load(laps=False, telemetry=False, weather=False, messages=False)
+    session.load(laps=True, telemetry=True, weather=False, messages=False)
 
     try:
         circuit_info = session.get_circuit_info()

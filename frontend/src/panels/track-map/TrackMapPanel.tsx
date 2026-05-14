@@ -9,7 +9,6 @@ import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
 import type { TelemetryResponse } from '../../lib/api';
 import { api } from '../../lib/api';
-import { getDriverColour } from '../../lib/colours';
 
 function speedToColour(speed: number, minSpeed: number, maxSpeed: number): string {
   const ratio = Math.max(0, Math.min(1, (speed - minSpeed) / (maxSpeed - minSpeed || 1)));
@@ -32,6 +31,46 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-load fastest lap of the session
+  useEffect(() => {
+    if (!sessionKey) return;
+    let isMounted = true;
+
+    const autoLoad = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const laps = await api.getLaps(sessionKey);
+        if (!isMounted) return;
+
+        const validLaps = laps.filter(l => l.lap_time != null);
+        if (validLaps.length === 0) {
+          setError('No lap data available for this session.');
+          setLoading(false);
+          return;
+        }
+
+        // Sort by lap time ascending to find overall fastest
+        const fastest = validLaps.sort((a, b) => a.lap_time! - b.lap_time!)[0];
+        setDriver(fastest.driver);
+
+        const data = await api.getTelemetry(sessionKey, fastest.driver, 'fastest', 2);
+        if (isMounted) {
+          setTel(data);
+          setLoading(false);
+        }
+      } catch (err: unknown) {
+        if (isMounted) {
+          setError((err as Error).message);
+          setLoading(false);
+        }
+      }
+    };
+
+    autoLoad();
+    return () => { isMounted = false; };
+  }, [sessionKey]);
+
   const handleLoad = async () => {
     if (!sessionKey || !driver) return;
     setLoading(true);
@@ -39,33 +78,44 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
     try {
       const data = await api.getTelemetry(sessionKey, driver, 'fastest', 2);
       setTel(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     }
     setLoading(false);
   };
 
   if (!sessionKey) return <div className="state-empty">Select a session to view track map</div>;
 
-  const chartSize = Math.min(Math.max(width - 20, 200), Math.max(height - 70, 200));
+  const chartSize = Math.min(Math.max(width - 20, 200), Math.max(height - 100, 200));
   const pad = 20;
 
   const points = tel?.data.filter(d => d.x != null && d.y != null) || [];
   const xs = points.map(d => d.x!);
   const ys = points.map(d => d.y!);
   const speeds = points.map(d => d.speed || 0);
-  const minX = Math.min(...xs, 0), maxX = Math.max(...xs, 1);
-  const minY = Math.min(...ys, 0), maxY = Math.max(...ys, 1);
-  const minSpeed = Math.min(...speeds, 0), maxSpeed = Math.max(...speeds, 350);
-  const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
+  
+  // Calculate bounds with padding
+  const minX = Math.min(...xs, 0);
+  const maxX = Math.max(...xs, 1);
+  const minY = Math.min(...ys, 0);
+  const maxY = Math.max(...ys, 1);
+  const minSpeed = Math.min(...speeds, 0);
+  const maxSpeed = Math.max(...speeds, 350);
+  
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
   const scale = (chartSize - pad * 2) / Math.max(rangeX, rangeY);
 
-  const mapX = (x: number) => pad + (x - minX) * scale;
-  const mapY = (y: number) => pad + (rangeY - (y - minY)) * scale; // flip Y
+  // Center the map in the SVG
+  const offsetX = (chartSize - rangeX * scale) / 2 - minX * scale;
+  const offsetY = (chartSize - rangeY * scale) / 2 - minY * scale;
+
+  const mapX = (x: number) => x * scale + offsetX;
+  const mapY = (y: number) => chartSize - (y * scale + offsetY); // flip Y for screen coordinates
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center', flexShrink: 0 }}>
         <input type="text" placeholder="Driver (e.g. VER)" value={driver}
           onChange={e => setDriver(e.target.value.toUpperCase())}
           style={{ width: 100, textTransform: 'uppercase' }} />
@@ -79,39 +129,41 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
       {error && <div className="state-error" style={{ minHeight: 40, fontSize: 'var(--fs-sm)' }}>{error}</div>}
       {!tel && !loading && <div className="state-empty" style={{ minHeight: 100 }}>Enter a driver code and click Load</div>}
 
-      {points.length > 0 && (
-        <svg width={chartSize} height={chartSize} style={{ display: 'block', margin: '0 auto' }}>
-          {/* Track trace coloured by speed */}
-          {points.map((p, i) => {
-            if (i === 0) return null;
-            const prev = points[i - 1];
-            return (
-              <line key={i}
-                x1={mapX(prev.x!)} y1={mapY(prev.y!)}
-                x2={mapX(p.x!)} y2={mapY(p.y!)}
-                stroke={speedToColour(p.speed || 0, minSpeed, maxSpeed)}
-                strokeWidth={2.5} strokeLinecap="round"
-              />
-            );
-          })}
-          {/* Start/finish marker */}
-          {points.length > 0 && (
-            <circle cx={mapX(points[0].x!)} cy={mapY(points[0].y!)} r={4} fill="var(--accent-red)" />
-          )}
-        </svg>
-      )}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
+        {points.length > 0 && (
+          <svg width={chartSize} height={chartSize} style={{ display: 'block', margin: '0 auto' }}>
+            {/* Track trace coloured by speed */}
+            {points.map((p, i) => {
+              if (i === 0) return null;
+              const prev = points[i - 1];
+              return (
+                <line key={i}
+                  x1={mapX(prev.x!)} y1={mapY(prev.y!)}
+                  x2={mapX(p.x!)} y2={mapY(p.y!)}
+                  stroke={speedToColour(p.speed || 0, minSpeed, maxSpeed)}
+                  strokeWidth={3} strokeLinecap="round"
+                />
+              );
+            })}
+            {/* Start/finish marker */}
+            {points.length > 0 && (
+              <circle cx={mapX(points[0].x!)} cy={mapY(points[0].y!)} r={5} fill="var(--accent-red)" stroke="white" strokeWidth={1} />
+            )}
+          </svg>
+        )}
 
-      {/* Speed legend */}
-      {points.length > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-          <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{Math.round(minSpeed)} km/h</span>
-          <div style={{
-            width: 120, height: 8, borderRadius: 4,
-            background: 'linear-gradient(90deg, rgb(0,100,255), rgb(0,255,155), rgb(255,255,0), rgb(255,55,0))',
-          }} />
-          <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{Math.round(maxSpeed)} km/h</span>
-        </div>
-      )}
+        {/* Speed legend */}
+        {points.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+            <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{Math.round(minSpeed)} km/h</span>
+            <div style={{
+              width: 120, height: 8, borderRadius: 4,
+              background: 'linear-gradient(90deg, rgb(0,100,255), rgb(0,255,155), rgb(255,255,0), rgb(255,55,0))',
+            }} />
+            <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{Math.round(maxSpeed)} km/h</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
