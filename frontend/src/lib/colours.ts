@@ -23,7 +23,7 @@ export const TEAM_COLOURS: Record<string, string> = {
   'Kick Sauber': '#52E252',
   'Sauber': '#52E252',
   'Audi': '#ff4a11',  
-  'Cadillac': '#3F3F3F',
+  'Cadillac': '#5b5a5aff',
 };
 
 // ── Driver → Team Mapping (2025 season) ─────────────────────────────

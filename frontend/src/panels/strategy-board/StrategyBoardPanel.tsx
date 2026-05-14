@@ -8,35 +8,69 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
-import type { StintData } from '../../lib/api';
+import type { StintData, ResultData } from '../../lib/api';
 import { api } from '../../lib/api';
 import { getCompoundColour } from '../../lib/colours';
 import { getDriverColour } from '../../lib/colours';
-import { formatLapTime } from '../../lib/format';
 
 const StrategyBoardPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
   const [stints, setStints] = useState<StintData[]>([]);
+  const [results, setResults] = useState<ResultData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!sessionKey) return;
+    let isMounted = true;
     setLoading(true);
     setError(null);
-    api.getStints(sessionKey)
-      .then(data => { setStints(data); setLoading(false); })
-      .catch(err => { setError(err.message); setLoading(false); });
+    
+    Promise.all([
+      api.getStints(sessionKey),
+      api.getResults(sessionKey).catch(() => [] as ResultData[]) // Fallback if results fail
+    ])
+      .then(([stintData, resultData]) => {
+        if (!isMounted) return;
+        setStints(stintData);
+        setResults(resultData);
+        setLoading(false);
+      })
+      .catch(err => {
+        if (!isMounted) return;
+        setError(err.message);
+        setLoading(false);
+      });
+      
+    return () => { isMounted = false; };
   }, [sessionKey]);
 
-  // Group stints by driver
+  // Group stints by driver and sort by finishing position
   const driverStints = useMemo(() => {
     const map = new Map<string, StintData[]>();
     for (const stint of stints) {
       if (!map.has(stint.driver)) map.set(stint.driver, []);
       map.get(stint.driver)!.push(stint);
     }
-    return map;
-  }, [stints]);
+    
+    // Create an array of entries to sort
+    const entries = Array.from(map.entries());
+    
+    // Create a lookup for positions
+    const posMap = new Map<string, number>();
+    results.forEach(r => {
+      if (r.position != null) posMap.set(r.driver, r.position);
+    });
+    
+    // Sort: drivers with known positions first, then alphabetically
+    entries.sort((a, b) => {
+      const posA = posMap.get(a[0]) ?? 999;
+      const posB = posMap.get(b[0]) ?? 999;
+      if (posA !== posB) return posA - posB;
+      return a[0].localeCompare(b[0]);
+    });
+    
+    return new Map(entries);
+  }, [stints, results]);
 
   const maxLap = useMemo(() => {
     return Math.max(...stints.map(s => s.end_lap), 1);

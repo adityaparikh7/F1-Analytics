@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
+
 from backend.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,7 @@ def _fetchall_dicts(sql: str, params: list | None = None) -> list[dict]:
     """Execute a query and return results as a list of dicts."""
     conn = get_connection()
     result = conn.execute(sql, params or []).fetchdf()
-    return result.to_dict(orient="records")
+    return result.replace({np.nan: None}).to_dict(orient="records")
 
 
 # ── Sessions ───────────────────────────────────────────────────────────
