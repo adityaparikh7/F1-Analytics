@@ -105,12 +105,12 @@ PANEL_CATALOGUE = [
         "minSize": {"w": 6, "h": 3},
     },
     {
-        "id": "aero-speed-trace",
-        "title": "Aero / Speed Trace",
-        "category": "aero",
-        "description": "ERS deployment and throttle/brake pattern analysis on track map.",
-        "defaultSize": {"w": 6, "h": 6},
-        "minSize": {"w": 4, "h": 4},
+        "id": "speed-trace",
+        "title": "Speed Trace",
+        "category": "telemetry",
+        "description": "Dual-driver speed overlay vs distance with DRS zones, throttle and brake sub-chart.",
+        "defaultSize": {"w": 12, "h": 6},
+        "minSize": {"w": 6, "h": 4},
     },
 ]
 

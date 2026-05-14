@@ -289,7 +289,7 @@ def fetch_telemetry(
     session = fastf1.get_session(year, identifier, session_type)
     session.load(laps=True, telemetry=True, weather=False, messages=False)
 
-    driver_laps = session.laps.pick_driver(driver)
+    driver_laps = session.laps.pick_drivers(driver)
 
     if lap == "fastest":
         selected_lap = driver_laps.pick_fastest()

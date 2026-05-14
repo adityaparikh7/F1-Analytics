@@ -22,7 +22,7 @@ export const TEAM_COLOURS: Record<string, string> = {
   'Haas': '#B6BABD',
   'Kick Sauber': '#52E252',
   'Sauber': '#52E252',
-  'Audi': '#ff4a11',  
+  'Audi': '#ff2911ff',  
   'Cadillac': '#5b5a5aff',
 };
 

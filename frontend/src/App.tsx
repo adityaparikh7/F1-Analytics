@@ -16,6 +16,15 @@ import { useLayoutStore } from './store/layoutStore';
 import './panels/session-results/SessionResultsPanel';
 import './panels/strategy-board/StrategyBoardPanel';
 import './panels/lap-distribution/LapDistributionPanel';
+import './panels/season-calendar/SeasonCalendarPanel';
+import './panels/driver-standings/DriverStandingsPanel';
+import './panels/constructor-standings/ConstructorStandingsPanel';
+import './panels/lap-progression/LapProgressionPanel';
+import './panels/telemetry-explorer/TelemetryExplorerPanel';
+import './panels/track-map/TrackMapPanel';
+import './panels/qualifying-comparison/QualifyingComparisonPanel';
+import './panels/top-speed-heatmap/TopSpeedHeatmapPanel';
+import './panels/speed-trace/SpeedTracePanel';
 
 const App: React.FC = () => {
   const restoreFromStorage = useLayoutStore(s => s.restoreFromStorage);
