@@ -39,8 +39,9 @@ export const Sidebar: React.FC = () => {
         loadSessions();
         setIngesting(false);
       }, 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Ingest failed:', err);
+      alert(`Ingest failed: ${err.message || err}`);
       setIngesting(false);
     }
   };

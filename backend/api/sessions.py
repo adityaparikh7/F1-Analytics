@@ -5,7 +5,7 @@ Endpoints for sessions, laps, results, and stints.
 """
 
 from __future__ import annotations
-
+import fastf1
 import logging
 from typing import Optional
 
@@ -99,6 +99,14 @@ async def trigger_ingest(
     """Trigger ETL for a session. Runs in the background."""
     if round_number is None and event is None:
         raise HTTPException(400, "Provide either round_number or event")
+
+    try:
+        identifier = round_number if round_number is not None else event
+        fastf1.get_session(year, identifier, session_type)
+    except ValueError as e:
+        raise HTTPException(400, f"Session type '{session_type}' does not exist for this event. It might be a Sprint weekend or the session is not scheduled.")
+    except Exception as e:
+        raise HTTPException(400, f"Could not find session: {e}")
 
     background_tasks.add_task(
         ingest_session,
