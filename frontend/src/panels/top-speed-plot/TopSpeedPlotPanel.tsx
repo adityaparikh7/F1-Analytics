@@ -1,5 +1,5 @@
 /**
- * F1 Pitwall — Top Speed Heatmap Panel
+ * F1 Pitwall — Top Speed Plot Panel
  *
  * Scatter-plot of every telemetry sample on the circuit map,
  * with each point coloured by speed. Shows braking zones,
@@ -68,7 +68,7 @@ function channelToColour(value: number, min: number, max: number, channel: HeatC
   }
 }
 
-const TopSpeedHeatmapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
+const TopSpeedPlotPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
   const [driverInput, setDriverInput] = useState('');
   const [telData, setTelData] = useState<TelemetryResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -257,10 +257,10 @@ const TopSpeedHeatmapPanel: React.FC<PanelProps> = ({ sessionKey, width, height 
 };
 
 registerPanel({
-  id: 'top-speed-heatmap',
-  title: 'Top Speed Heatmap',
+  id: 'top-speed-plot',
+  title: 'Top Speed Plot',
   category: 'performance',
-  Component: TopSpeedHeatmapPanel,
+  Component: TopSpeedPlotPanel,
 });
 
-export default TopSpeedHeatmapPanel;
+export default TopSpeedPlotPanel;

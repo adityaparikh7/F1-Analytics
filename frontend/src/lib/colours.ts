@@ -14,7 +14,7 @@ export const TEAM_COLOURS: Record<string, string> = {
   'Mercedes': '#27F4D2',
   'McLaren': '#FF8000',
   'Aston Martin': '#229971',
-  'Alpine': '#0093CC',
+  'Alpine': '#ff00fbff',
   'Williams': '#64C4FF',
   'RB': '#6692FF',
   'Racing Bulls': '#6692FF',

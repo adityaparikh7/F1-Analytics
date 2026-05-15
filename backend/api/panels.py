@@ -89,8 +89,8 @@ PANEL_CATALOGUE = [
         "minSize": {"w": 6, "h": 3},
     },
     {
-        "id": "top-speed-heatmap",
-        "title": "Top Speed Heatmap",
+        "id": "top-speed-plot",
+        "title": "Top Speed Plot",
         "category": "performance",
         "description": "Speed at every telemetry sample plotted on the circuit map.",
         "defaultSize": {"w": 6, "h": 6},
@@ -111,6 +111,14 @@ PANEL_CATALOGUE = [
         "description": "Dual-driver speed overlay vs distance with DRS zones, throttle and brake sub-chart.",
         "defaultSize": {"w": 12, "h": 6},
         "minSize": {"w": 6, "h": 4},
+    },
+    {
+        "id": "aero-map",
+        "title": "Aero Map",
+        "category": "telemetry",
+        "description": "Aero map of the teams across the circuit.",
+        "defaultSize": {"w": 12, "h": 6},
+        "minSize": {"w": 4, "h": 4},
     },
 ]
 

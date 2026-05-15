@@ -23,7 +23,7 @@ import './panels/lap-progression/LapProgressionPanel';
 import './panels/telemetry-explorer/TelemetryExplorerPanel';
 import './panels/track-map/TrackMapPanel';
 import './panels/qualifying-comparison/QualifyingComparisonPanel';
-import './panels/top-speed-heatmap/TopSpeedHeatmapPanel';
+import './panels/top-speed-plot/TopSpeedPlotPanel';
 import './panels/speed-trace/SpeedTracePanel';
 import './panels/aero-map/AeroMapPanel';
 

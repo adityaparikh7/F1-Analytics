@@ -10,14 +10,26 @@
  *
  * Supports loading two drivers simultaneously for side-by-side comparison
  * on the same circuit layout.
+ * 
+ * Visualizes qudrant plot for each team computed from mean lap speed and top speed to determine aerodynamic setup characteristics.
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
-import type { TelemetryResponse, TelemetryPoint } from '../../lib/api';
+import type { TelemetryResponse, TelemetryPoint, ResultData } from '../../lib/api';
 import { api } from '../../lib/api';
-import { getDriverColour } from '../../lib/colours';
+import { getDriverColour, TEAM_COLOURS } from '../../lib/colours';
+
+type ViewMode = 'circuit' | 'quadrant';
+
+interface QuadrantPoint {
+  team: string;
+  driver: string;
+  meanSpeed: number;
+  topSpeed: number;
+  colour: string;
+}
 
 // ── Aero channel definitions ────────────────────────────────────────
 
@@ -147,6 +159,7 @@ interface DriverAero {
 // ── Component ───────────────────────────────────────────────────────
 
 const AeroMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
+  const [viewMode, setViewMode] = useState<ViewMode>('circuit');
   const [driver1Input, setDriver1Input] = useState('');
   const [driver2Input, setDriver2Input] = useState('');
   const [telData, setTelData] = useState<TelemetryResponse[]>([]);
@@ -154,7 +167,11 @@ const AeroMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
   const [error, setError] = useState<string | null>(null);
   const [channel, setChannel] = useState<AeroChannel>('efficiency');
   const [dotSize, setDotSize] = useState(2.5);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null); // which driver map is hovered
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  // Quadrant view state
+  const [quadrantData, setQuadrantData] = useState<QuadrantPoint[]>([]);
+  const [quadrantLoading, setQuadrantLoading] = useState(false);
 
   const handleLoad = useCallback(async () => {
     if (!sessionKey || !driver1Input.trim()) return;
@@ -175,6 +192,44 @@ const AeroMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
     }
     setLoading(false);
   }, [sessionKey, driver1Input, driver2Input]);
+
+  // ── Quadrant: load all teams' best driver telemetry ─────────────
+  const handleLoadQuadrant = useCallback(async () => {
+    if (!sessionKey) return;
+    setQuadrantLoading(true);
+    setError(null);
+    try {
+      const results: ResultData[] = await api.getResults(sessionKey);
+      // Pick best driver per team (lowest position = best)
+      const teamBest = new Map<string, ResultData>();
+      for (const r of results) {
+        if (!r.team) continue;
+        const prev = teamBest.get(r.team);
+        if (!prev || (r.position != null && (prev.position == null || r.position < prev.position))) {
+          teamBest.set(r.team, r);
+        }
+      }
+
+      const points: QuadrantPoint[] = [];
+      for (const [team, result] of teamBest) {
+        try {
+          const tel = await api.getTelemetry(sessionKey, result.driver, 'fastest', 2);
+          const speeds = tel.data.filter(d => d.speed != null).map(d => d.speed!);
+          if (speeds.length === 0) continue;
+          const meanSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+          const topSpeed = Math.max(...speeds);
+          points.push({
+            team, driver: result.driver, meanSpeed, topSpeed,
+            colour: TEAM_COLOURS[team] || getDriverColour(result.driver, team),
+          });
+        } catch { /* skip teams with no telemetry */ }
+      }
+      setQuadrantData(points);
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setQuadrantLoading(false);
+  }, [sessionKey]);
 
   // Compute aero data for each driver
   const driverAero: DriverAero[] = useMemo(() => {
@@ -336,116 +391,193 @@ const AeroMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
     );
   };
 
+  // ── Quadrant SVG renderer ──────────────────────────────────────────
+  const renderQuadrant = () => {
+    if (quadrantData.length === 0 && !quadrantLoading) {
+      return <div className="state-empty" style={{ minHeight: 100 }}>Click Load All Teams to build the efficiency quadrant</div>;
+    }
+    if (quadrantData.length === 0) return null;
+
+    const qW = Math.max(width - 20, 280);
+    const qH = Math.max(height - 100, 280);
+    const qPad = { l: 55, r: 20, t: 20, b: 35 };
+    const plotW = qW - qPad.l - qPad.r;
+    const plotH = qH - qPad.t - qPad.b;
+
+    const meanSpeeds = quadrantData.map(d => d.meanSpeed);
+    const topSpeeds = quadrantData.map(d => d.topSpeed);
+    const xMin = Math.min(...meanSpeeds) - 1;
+    const xMax = Math.max(...meanSpeeds) + 1;
+    const yMin = Math.min(...topSpeeds) - 2;
+    const yMax = Math.max(...topSpeeds) + 2;
+    const cx = meanSpeeds.reduce((a, b) => a + b, 0) / meanSpeeds.length;
+    const cy = topSpeeds.reduce((a, b) => a + b, 0) / topSpeeds.length;
+
+    const sx = (v: number) => qPad.l + ((v - xMin) / (xMax - xMin)) * plotW;
+    const sy = (v: number) => qPad.t + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+    const cxPx = sx(cx), cyPx = sy(cy);
+
+    return (
+      <svg width={qW} height={qH} style={{ display: 'block', margin: '0 auto', fontFamily: 'var(--font-mono)' }}>
+        {/* Quadrant shading */}
+        <rect x={qPad.l} y={qPad.t} width={cxPx - qPad.l} height={cyPx - qPad.t} fill="#3B82F6" opacity={0.06} />
+        <rect x={cxPx} y={qPad.t} width={qPad.l + plotW - cxPx} height={cyPx - qPad.t} fill="#22C55E" opacity={0.06} />
+        <rect x={cxPx} y={cyPx} width={qPad.l + plotW - cxPx} height={qPad.t + plotH - cyPx} fill="#EF4444" opacity={0.06} />
+        <rect x={qPad.l} y={cyPx} width={cxPx - qPad.l} height={qPad.t + plotH - cyPx} fill="#F97316" opacity={0.06} />
+
+        {/* Crosshair lines */}
+        <line x1={cxPx} y1={qPad.t} x2={cxPx} y2={qPad.t + plotH} stroke="var(--border-default)" strokeDasharray="4,4" />
+        <line x1={qPad.l} y1={cyPx} x2={qPad.l + plotW} y2={cyPx} stroke="var(--border-default)" strokeDasharray="4,4" />
+
+        {/* Quadrant labels */}
+        <text x={qPad.l + 6} y={qPad.t + 14} fill="var(--text-tertiary)" fontSize={9} opacity={0.7}>Low Downforce</text>
+        <text x={qPad.l + plotW - 6} y={qPad.t + 14} fill="var(--text-tertiary)" fontSize={9} opacity={0.7} textAnchor="end">High Efficiency</text>
+        <text x={qPad.l + plotW - 6} y={qPad.t + plotH - 6} fill="var(--text-tertiary)" fontSize={9} opacity={0.7} textAnchor="end">High Downforce</text>
+        <text x={qPad.l + 6} y={qPad.t + plotH - 6} fill="var(--text-tertiary)" fontSize={9} opacity={0.7}>Low Efficiency</text>
+
+        {/* Axis arrows */}
+        <text x={qPad.l + plotW / 2} y={qPad.t + plotH + 28} fill="var(--text-tertiary)" fontSize={10} textAnchor="middle">Mean Speed (km/h) →</text>
+        <text x={12} y={qPad.t + plotH / 2} fill="var(--text-tertiary)" fontSize={10} textAnchor="middle" transform={`rotate(-90, 12, ${qPad.t + plotH / 2})`}>Top Speed (km/h) →</text>
+
+        {/* Grid lines */}
+        {Array.from({ length: 5 }, (_, i) => {
+          const v = xMin + ((xMax - xMin) * i) / 4;
+          return <g key={`gx${i}`}>
+            <line x1={sx(v)} y1={qPad.t} x2={sx(v)} y2={qPad.t + plotH} stroke="var(--border-default)" strokeDasharray="2,6" opacity={0.3} />
+            <text x={sx(v)} y={qPad.t + plotH + 14} fill="var(--text-tertiary)" fontSize={8} textAnchor="middle">{v.toFixed(1)}</text>
+          </g>;
+        })}
+        {Array.from({ length: 5 }, (_, i) => {
+          const v = yMin + ((yMax - yMin) * i) / 4;
+          return <g key={`gy${i}`}>
+            <line x1={qPad.l} y1={sy(v)} x2={qPad.l + plotW} y2={sy(v)} stroke="var(--border-default)" strokeDasharray="2,6" opacity={0.3} />
+            <text x={qPad.l - 5} y={sy(v) + 3} fill="var(--text-tertiary)" fontSize={8} textAnchor="end">{v.toFixed(0)}</text>
+          </g>;
+        })}
+
+        {/* Team dots — glow layer */}
+        {quadrantData.map((d, i) => (
+          <circle key={`g${i}`} cx={sx(d.meanSpeed)} cy={sy(d.topSpeed)} r={12} fill={d.colour} opacity={0.15} />
+        ))}
+
+        {/* Team dots — main */}
+        {quadrantData.map((d, i) => (
+          <circle key={`m${i}`} cx={sx(d.meanSpeed)} cy={sy(d.topSpeed)} r={8} fill={d.colour} stroke="var(--bg-base)" strokeWidth={1.5} opacity={0.95} />
+        ))}
+
+        {/* Team labels */}
+        {quadrantData.map((d, i) => (
+          <text key={`t${i}`} x={sx(d.meanSpeed)} y={sy(d.topSpeed) - 12} fill="var(--text-primary)" fontSize={9} fontWeight={600} textAnchor="middle">
+            {d.team.length > 14 ? d.driver : d.team}
+          </text>
+        ))}
+      </svg>
+    );
+  };
+
+  // ── View mode toggle button style ─────────────────────────────────
+  const vmBtn = (mode: ViewMode, label: string) => (
+    <button
+      onClick={() => { setViewMode(mode); if (mode === 'quadrant' && quadrantData.length === 0) handleLoadQuadrant(); }}
+      style={{
+        padding: '2px 10px', borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-xs)',
+        fontFamily: 'var(--font-mono)', fontWeight: 600,
+        background: viewMode === mode ? 'var(--bg-active)' : 'transparent',
+        color: viewMode === mode ? 'var(--text-primary)' : 'var(--text-tertiary)',
+        border: `1px solid ${viewMode === mode ? 'var(--border-emphasis)' : 'var(--border-default)'}`,
+        cursor: 'pointer', transition: 'all 0.15s',
+      }}
+    >{label}</button>
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Controls row */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-        <input
-          type="text"
-          placeholder="Driver 1"
-          value={driver1Input}
-          onChange={e => setDriver1Input(e.target.value.toUpperCase())}
-          onKeyDown={e => e.key === 'Enter' && handleLoad()}
-          style={{ width: 85, textTransform: 'uppercase' }}
-        />
-        <input
-          type="text"
-          placeholder="Driver 2"
-          value={driver2Input}
-          onChange={e => setDriver2Input(e.target.value.toUpperCase())}
-          onKeyDown={e => e.key === 'Enter' && handleLoad()}
-          style={{ width: 85, textTransform: 'uppercase' }}
-        />
-        <button
-          className="topbar__btn topbar__btn--primary"
-          onClick={handleLoad}
-          disabled={loading || !driver1Input.trim()}
-          style={{ fontSize: 'var(--fs-xs)', padding: '3px 12px' }}
-        >
-          {loading ? '...' : 'Load'}
-        </button>
-
-        {/* Channel toggles */}
-        <div style={{ display: 'flex', gap: '3px', marginLeft: '6px' }}>
-          {(Object.keys(CHANNEL_META) as AeroChannel[]).map(ch => (
-            <button
-              key={ch}
-              onClick={() => setChannel(ch)}
-              style={{
-                padding: '2px 8px',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: 'var(--fs-xs)',
-                fontFamily: 'var(--font-mono)',
-                fontWeight: 500,
-                background: channel === ch ? 'var(--bg-active)' : 'transparent',
-                color: channel === ch ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                border: `1px solid ${channel === ch ? 'var(--border-emphasis)' : 'var(--border-default)'}`,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-            >
-              {CHANNEL_META[ch].label}
-            </button>
-          ))}
-        </div>
-
-        {/* Dot size */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
-          <span className="text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>Size</span>
-          <input
-            type="range"
-            min={1}
-            max={5}
-            step={0.5}
-            value={dotSize}
-            onChange={e => setDotSize(Number(e.target.value))}
-            style={{ width: 50, accentColor: 'var(--accent-teal)' }}
-          />
-        </div>
+      {/* View mode toggle */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '6px', flexShrink: 0 }}>
+        {vmBtn('circuit', 'Circuit Map')}
+        {vmBtn('quadrant', 'Efficiency Quadrant')}
       </div>
 
-      {/* Channel description */}
-      <div className="text-tertiary" style={{ fontSize: 'var(--fs-xs)', marginBottom: '6px', fontStyle: 'italic', flexShrink: 0 }}>
-        {CHANNEL_META[channel].desc}
-      </div>
-
-      {error && <div className="state-error" style={{ minHeight: 36, fontSize: 'var(--fs-sm)' }}>{error}</div>}
-      {driverAero.length === 0 && !loading && (
-        <div className="state-empty" style={{ minHeight: 100 }}>
-          Enter one or two driver codes and press Load to visualise aero characteristics
-        </div>
-      )}
-
-      {/* Map renders */}
-      {driverAero.length > 0 && (
+      {/* ── Circuit Map View ──────────────────────────────────────── */}
+      {viewMode === 'circuit' && (
         <>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            gap: '16px',
-            flex: 1,
-            minHeight: 0,
-            alignItems: 'flex-start',
-            flexWrap: 'wrap',
-          }}>
-            {driverAero.map((da, i) => renderMap(da, i))}
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+            <input type="text" placeholder="Driver 1" value={driver1Input}
+              onChange={e => setDriver1Input(e.target.value.toUpperCase())}
+              onKeyDown={e => e.key === 'Enter' && handleLoad()}
+              style={{ width: 85, textTransform: 'uppercase' }} />
+            <input type="text" placeholder="Driver 2" value={driver2Input}
+              onChange={e => setDriver2Input(e.target.value.toUpperCase())}
+              onKeyDown={e => e.key === 'Enter' && handleLoad()}
+              style={{ width: 85, textTransform: 'uppercase' }} />
+            <button className="topbar__btn topbar__btn--primary" onClick={handleLoad}
+              disabled={loading || !driver1Input.trim()}
+              style={{ fontSize: 'var(--fs-xs)', padding: '3px 12px' }}>
+              {loading ? '...' : 'Load'}
+            </button>
+
+            <div style={{ display: 'flex', gap: '3px', marginLeft: '6px' }}>
+              {(Object.keys(CHANNEL_META) as AeroChannel[]).map(ch => (
+                <button key={ch} onClick={() => setChannel(ch)} style={{
+                  padding: '2px 8px', borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-xs)',
+                  fontFamily: 'var(--font-mono)', fontWeight: 500,
+                  background: channel === ch ? 'var(--bg-active)' : 'transparent',
+                  color: channel === ch ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                  border: `1px solid ${channel === ch ? 'var(--border-emphasis)' : 'var(--border-default)'}`,
+                  cursor: 'pointer', transition: 'all 0.15s',
+                }}>{CHANNEL_META[ch].label}</button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
+              <span className="text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>Size</span>
+              <input type="range" min={1} max={5} step={0.5} value={dotSize}
+                onChange={e => setDotSize(Number(e.target.value))}
+                style={{ width: 50, accentColor: 'var(--accent-teal)' }} />
+            </div>
           </div>
 
-          {/* Shared legend */}
-          <div style={{
-            display: 'flex', justifyContent: 'center', alignItems: 'center',
-            gap: '8px', marginTop: '8px', flexShrink: 0,
-          }}>
-            <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>
-              {globalBounds.min.toFixed(1)} {CHANNEL_META[channel].unit}
+          <div className="text-tertiary" style={{ fontSize: 'var(--fs-xs)', marginBottom: '6px', fontStyle: 'italic', flexShrink: 0 }}>
+            {CHANNEL_META[channel].desc}
+          </div>
+
+          {error && <div className="state-error" style={{ minHeight: 36, fontSize: 'var(--fs-sm)' }}>{error}</div>}
+          {driverAero.length === 0 && !loading && (
+            <div className="state-empty" style={{ minHeight: 100 }}>Enter one or two driver codes and press Load</div>
+          )}
+
+          {driverAero.length > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', flex: 1, minHeight: 0, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                {driverAero.map((da, i) => renderMap(da, i))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '8px', flexShrink: 0 }}>
+                <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{globalBounds.min.toFixed(1)} {CHANNEL_META[channel].unit}</span>
+                <div style={{ width: 140, height: 8, borderRadius: 4, background: CHANNEL_META[channel].gradient }} />
+                <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{globalBounds.max.toFixed(1)} {CHANNEL_META[channel].unit}</span>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── Efficiency Quadrant View ──────────────────────────────── */}
+      {viewMode === 'quadrant' && (
+        <>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center', flexShrink: 0 }}>
+            <button className="topbar__btn topbar__btn--primary" onClick={handleLoadQuadrant}
+              disabled={quadrantLoading}
+              style={{ fontSize: 'var(--fs-xs)', padding: '3px 12px' }}>
+              {quadrantLoading ? 'Loading teams...' : 'Load All Teams'}
+            </button>
+            <span className="text-tertiary" style={{ fontSize: 'var(--fs-xs)', fontStyle: 'italic' }}>
+              Mean lap speed vs top straight-line speed per team
             </span>
-            <div style={{
-              width: 140, height: 8, borderRadius: 4,
-              background: CHANNEL_META[channel].gradient,
-            }} />
-            <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>
-              {globalBounds.max.toFixed(1)} {CHANNEL_META[channel].unit}
-            </span>
+          </div>
+          {error && <div className="state-error" style={{ minHeight: 36, fontSize: 'var(--fs-sm)' }}>{error}</div>}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {renderQuadrant()}
           </div>
         </>
       )}
