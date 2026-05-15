@@ -33,12 +33,13 @@ export const GridCanvas: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
+  const GridLayoutComponent = GridLayout as any;
+
   return (
     <div className="grid-canvas" ref={containerRef}>
-      <GridLayout
+      <GridLayoutComponent
         className="react-grid-layout"
-        layout={currentLayout}
-        cols={12}
+        layout={currentLayout as any}
         rowHeight={60}
         width={canvasWidth}
         onLayoutChange={setLayout}
@@ -56,7 +57,7 @@ export const GridCanvas: React.FC = () => {
             />
           </div>
         ))}
-      </GridLayout>
+      </GridLayoutComponent>
     </div>
   );
 };

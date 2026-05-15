@@ -127,7 +127,7 @@ const SpeedTracePanel: React.FC<PanelProps> = ({ sessionKey, width, height }) =>
       <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder="Driver 1"
+          placeholder="Driver 1 (e.g. 1)"
           value={driver1}
           onChange={e => setDriver1(e.target.value.toUpperCase())}
           onKeyDown={e => e.key === 'Enter' && handleLoad()}
@@ -135,7 +135,7 @@ const SpeedTracePanel: React.FC<PanelProps> = ({ sessionKey, width, height }) =>
         />
         <input
           type="text"
-          placeholder="Driver 2"
+          placeholder="Driver 2 (e.g. 44)"
           value={driver2}
           onChange={e => setDriver2(e.target.value.toUpperCase())}
           onKeyDown={e => e.key === 'Enter' && handleLoad()}

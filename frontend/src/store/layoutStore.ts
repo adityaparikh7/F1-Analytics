@@ -5,7 +5,7 @@
  */
 
 import { create } from 'zustand';
-import type { Layout } from 'react-grid-layout';
+import type { Layout, LayoutItem } from 'react-grid-layout';
 
 export interface PanelInstance {
   instanceId: string;    // {panelTypeId}_{uuid}
@@ -15,13 +15,13 @@ export interface PanelInstance {
 
 interface NamedLayout {
   name: string;
-  layout: Layout[];
+  layout: Layout;
   panels: PanelInstance[];
 }
 
 interface LayoutState {
   // Current state
-  currentLayout: Layout[];
+  currentLayout: Layout;
   activePanels: PanelInstance[];
   currentLayoutName: string;
 
@@ -29,7 +29,7 @@ interface LayoutState {
   savedLayouts: NamedLayout[];
 
   // Actions
-  setLayout: (layout: Layout[]) => void;
+  setLayout: (layout: Layout) => void;
   addPanel: (panelTypeId: string, defaultSize: { w: number; h: number }) => void;
   removePanel: (instanceId: string) => void;
   updatePanelConfig: (instanceId: string, config: Record<string, unknown>) => void;
@@ -43,13 +43,13 @@ function generateId(): string {
   return Math.random().toString(36).substring(2, 10);
 }
 
-function findNextPosition(layout: Layout[], cols: number = 12): { x: number; y: number } {
+function findNextPosition(layout: Layout): { x: number; y: number } {
   if (layout.length === 0) return { x: 0, y: 0 };
   const maxY = Math.max(...layout.map(l => l.y + l.h));
   return { x: 0, y: maxY };
 }
 
-function persistToStorage(state: { currentLayout: Layout[]; activePanels: PanelInstance[]; currentLayoutName: string; savedLayouts: NamedLayout[] }) {
+function persistToStorage(state: { currentLayout: Layout; activePanels: PanelInstance[]; currentLayoutName: string; savedLayouts: NamedLayout[] }) {
   localStorage.setItem('pitwall_layout', JSON.stringify({
     currentLayout: state.currentLayout,
     activePanels: state.activePanels,
@@ -66,7 +66,7 @@ const DEFAULT_PANELS: PanelInstance[] = [
   { instanceId: 'strategy-board_default', panelTypeId: 'strategy-board', config: {} },
 ];
 
-const DEFAULT_LAYOUT: Layout[] = [
+const DEFAULT_LAYOUT: Layout = [
   { i: 'session-results_default', x: 0, y: 0, w: 6, h: 5, minW: 6, minH: 3 },
   { i: 'track-map_default', x: 6, y: 0, w: 6, h: 5, minW: 4, minH: 3 },
   { i: 'lap-distribution_default', x: 0, y: 5, w: 6, h: 4, minW: 4, minH: 3 },
@@ -79,7 +79,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   currentLayoutName: 'Default',
   savedLayouts: [],
 
-  setLayout: (layout: Layout[]) => {
+  setLayout: (layout: Layout) => {
     set({ currentLayout: layout });
     persistToStorage(get());
   },
@@ -88,7 +88,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const instanceId = `${panelTypeId}_${generateId()}`;
     const { x, y } = findNextPosition(get().currentLayout);
 
-    const newLayoutItem: Layout = {
+    const newLayoutItem: LayoutItem = {
       i: instanceId,
       x, y,
       w: defaultSize.w,

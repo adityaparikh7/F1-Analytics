@@ -192,10 +192,10 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
       {/* Controls */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-        <input type="text" placeholder="Driver 1 (e.g. VER)" value={driver1}
+        <input type="text" placeholder="Driver 1 (e.g. VER or 1)" value={driver1}
           onChange={e => setDriver1(e.target.value.toUpperCase())}
           style={{ width: 90, textTransform: 'uppercase' }} />
-        <input type="text" placeholder="Driver 2" value={driver2}
+        <input type="text" placeholder="Driver 2 (e.g. 44)" value={driver2}
           onChange={e => setDriver2(e.target.value.toUpperCase())}
           style={{ width: 90, textTransform: 'uppercase' }} />
         <button className="topbar__btn topbar__btn--primary" onClick={handleLoad}

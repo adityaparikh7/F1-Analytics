@@ -21,14 +21,14 @@ router = APIRouter(tags=["telemetry"])
 @router.get("/sessions/{session_key}/telemetry")
 async def get_telemetry(
     session_key: str,
-    driver: str = Query(..., min_length=2, max_length=3),
+    driver: str = Query(..., min_length=1, max_length=3),
     lap: str = Query("fastest"),
     downsample: Optional[int] = Query(None, ge=1, le=100, description="Take every Nth point"),
 ):
     """
     Fetch telemetry for a specific driver and lap.
 
-    - `driver`: 3-letter driver abbreviation (e.g. VER, HAM)
+    - `driver`: 3-letter driver abbreviation (e.g. VER, HAM) or driver number (e.g. 1, 44)
     - `lap`: "fastest", "personal_best", or a lap number
     - `downsample`: optional, return every Nth sample for performance
 
@@ -44,7 +44,7 @@ async def get_telemetry(
         raise HTTPException(400, f"Invalid session_key format: {session_key}")
 
     try:
-        data = fetch_telemetry(
+        real_driver, data = fetch_telemetry(
             year=year,
             round_number=round_number,
             session_type=session_type,
@@ -60,7 +60,7 @@ async def get_telemetry(
 
     return {
         "session_key": session_key,
-        "driver": driver.upper(),
+        "driver": real_driver,
         "lap": lap,
         "sample_count": len(data),
         "data": data,

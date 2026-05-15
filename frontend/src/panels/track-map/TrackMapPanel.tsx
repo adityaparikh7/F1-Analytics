@@ -116,7 +116,7 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center', flexShrink: 0 }}>
-        <input type="text" placeholder="Driver (e.g. VER)" value={driver}
+        <input type="text" placeholder="Driver (e.g. VER or 1)" value={driver}
           onChange={e => setDriver(e.target.value.toUpperCase())}
           style={{ width: 100, textTransform: 'uppercase' }} />
         <button className="topbar__btn topbar__btn--primary" onClick={handleLoad}

@@ -9,7 +9,7 @@ import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
 import type { ResultData } from '../../lib/api';
 import { api } from '../../lib/api';
-import { formatPosition, formatLapTime, formatPoints } from '../../lib/format';
+import { formatPosition, formatPoints } from '../../lib/format';
 import { getDriverColour } from '../../lib/colours';
 
 const SessionResultsPanel: React.FC<PanelProps> = ({ sessionKey }) => {

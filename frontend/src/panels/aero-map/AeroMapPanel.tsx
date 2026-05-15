@@ -503,11 +503,11 @@ const AeroMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
       {viewMode === 'circuit' && (
         <>
           <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-            <input type="text" placeholder="Driver 1" value={driver1Input}
+            <input type="text" placeholder="Driver 1 (e.g. VER or 1)" value={driver1Input}
               onChange={e => setDriver1Input(e.target.value.toUpperCase())}
               onKeyDown={e => e.key === 'Enter' && handleLoad()}
               style={{ width: 85, textTransform: 'uppercase' }} />
-            <input type="text" placeholder="Driver 2" value={driver2Input}
+            <input type="text" placeholder="Driver 2 (e.g. HAM or 44)" value={driver2Input}
               onChange={e => setDriver2Input(e.target.value.toUpperCase())}
               onKeyDown={e => e.key === 'Enter' && handleLoad()}
               style={{ width: 85, textTransform: 'uppercase' }} />

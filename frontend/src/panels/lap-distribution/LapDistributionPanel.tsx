@@ -12,7 +12,7 @@ import { api } from '../../lib/api';
 import { getDriverColour } from '../../lib/colours';
 import { formatLapTime } from '../../lib/format';
 
-const LapDistributionPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
+const LapDistributionPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
   const [laps, setLaps] = useState<LapData[]>([]);
   const [results, setResults] = useState<ResultData[]>([]);
   const [loading, setLoading] = useState(false);

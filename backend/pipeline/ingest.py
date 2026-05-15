@@ -276,7 +276,7 @@ def fetch_telemetry(
     session_type: str = "R",
     driver: str = "VER",
     lap: str = "fastest",
-) -> list[dict]:
+) -> tuple[str, list[dict]]:
     """
     Fetch telemetry data on-demand (not stored in DuckDB permanently).
 
@@ -290,6 +290,10 @@ def fetch_telemetry(
     session.load(laps=True, telemetry=True, weather=False, messages=False)
 
     driver_laps = session.laps.pick_drivers(driver)
+    
+    if driver_laps.empty:
+        raise ValueError(f"No laps found for driver {driver}")
+    real_driver = driver_laps.iloc[0]["Driver"]
 
     if lap == "fastest":
         selected_lap = driver_laps.pick_fastest()
@@ -318,7 +322,7 @@ def fetch_telemetry(
     })
 
     df = df.replace({np.nan: None})
-    return df.to_dict(orient="records")
+    return real_driver, df.to_dict(orient="records")
 
 def fetch_circuit_info(
     year: int,

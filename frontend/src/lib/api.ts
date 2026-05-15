@@ -106,6 +106,13 @@ export interface TelemetryResponse {
   data: TelemetryPoint[];
 }
 
+export interface CornerData {
+  number: number;
+  letter: string | null;
+  angle: number | null;
+  distance: number | null;
+}
+
 export interface DriverStanding {
   year: number;
   round_number: number;

@@ -57,8 +57,12 @@ def get_laps(
     params: list = [session_key]
 
     if driver:
-        sql += " AND driver = ?"
-        params.append(driver)
+        if driver.isdigit():
+            sql += " AND driver_number = ?"
+            params.append(int(driver))
+        else:
+            sql += " AND driver = ?"
+            params.append(driver.upper())
     if compound:
         sql += " AND compound = ?"
         params.append(compound.upper())
@@ -89,8 +93,12 @@ def get_stints(session_key: str, driver: str | None = None) -> list[dict]:
     """
     params: list = [session_key]
     if driver:
-        sql += " AND driver = ?"
-        params.append(driver)
+        if driver.isdigit():
+            sql += " AND driver_number = ?"
+            params.append(int(driver))
+        else:
+            sql += " AND driver = ?"
+            params.append(driver.upper())
     sql += " GROUP BY session_key, driver, team, stint, compound ORDER BY driver, stint"
     return _fetchall_dicts(sql, params)
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CACHE_DIR = Path(os.getenv("FASTF1_CACHE_DIR", str(PROJECT_ROOT / "cache" / "fastf1")))
+CACHE_DIR = Path(os.getenv("FASTF1_CACHE_DIR", str(PROJECT_ROOT / "cache")))
 PARQUET_DIR = Path(os.getenv("PARQUET_DATA_DIR", str(PROJECT_ROOT / "data" / "parquet")))
 DUCKDB_PATH = Path(os.getenv("DUCKDB_PATH", str(PROJECT_ROOT / "data" / "pitwall.duckdb")))
 

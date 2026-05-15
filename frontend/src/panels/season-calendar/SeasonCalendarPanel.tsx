@@ -76,10 +76,6 @@ const SeasonCalendarPanel: React.FC<PanelProps> = () => {
           {events.map(ev => {
             const eventDate = ev.event_date ? new Date(ev.event_date) : null;
             const isPast = eventDate && eventDate < now;
-            const isNext = eventDate && !isPast &&
-              events.filter(e => e.event_date && new Date(e.event_date) < now).length ===
-              events.indexOf(ev) - (events.findIndex(e => e.event_date && new Date(e.event_date) >= now) > 0 ? events.findIndex(e => e.event_date && new Date(e.event_date) >= now) : 0)
-              ? false : false;
 
             return (
               <tr key={ev.round_number} style={{ opacity: isPast ? 0.5 : 1 }}>

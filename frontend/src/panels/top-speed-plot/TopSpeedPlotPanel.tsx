@@ -12,7 +12,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
-import type { TelemetryResponse, TelemetryPoint } from '../../lib/api';
+import type { TelemetryResponse } from '../../lib/api';
 import { api } from '../../lib/api';
 
 type HeatChannel = 'speed' | 'throttle' | 'brake';
@@ -119,7 +119,7 @@ const TopSpeedPlotPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) 
       <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder="Driver (e.g. NOR)"
+          placeholder="Driver (e.g. NOR or 4)"
           value={driverInput}
           onChange={e => setDriverInput(e.target.value.toUpperCase())}
           onKeyDown={e => e.key === 'Enter' && handleLoad()}
