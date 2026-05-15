@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS results (
     fastest_lap     DOUBLE,              -- fastest lap time in seconds
     fastest_lap_number INTEGER,
     pit_stops       INTEGER,
+    q1_time         DOUBLE,              -- qualifying Q1 best time in seconds
+    q2_time         DOUBLE,              -- qualifying Q2 best time in seconds
+    q3_time         DOUBLE,              -- qualifying Q3 best time in seconds
+    best_lap_time   DOUBLE,              -- best lap time in seconds (practice / quali)
     PRIMARY KEY (session_key, driver)
 );
 
@@ -111,7 +115,36 @@ def initialise_schema() -> None:
     """Create all tables if they don't exist."""
     conn = get_connection()
     conn.execute(SCHEMA_SQL)
+
+    # ── Schema migrations ──────────────────────────────────────────
+    # Add new columns to existing results table (CREATE TABLE IF NOT EXISTS
+    # won't add columns to a table that already exists).
+    _migrate_results_table(conn)
+
     logger.info("DuckDB schema initialised")
+
+
+def _migrate_results_table(conn) -> None:
+    """Add qualifying / practice columns to the results table if missing."""
+    new_columns = {
+        "q1_time": "DOUBLE",
+        "q2_time": "DOUBLE",
+        "q3_time": "DOUBLE",
+        "best_lap_time": "DOUBLE",
+    }
+
+    try:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info('results')").fetchall()}
+    except Exception:
+        return  # table doesn't exist yet — SCHEMA_SQL will create it
+
+    for col, dtype in new_columns.items():
+        if col not in existing:
+            try:
+                conn.execute(f"ALTER TABLE results ADD COLUMN {col} {dtype}")
+                logger.info("Added column results.%s (%s)", col, dtype)
+            except Exception:
+                pass  # column may already exist
 
 
 def refresh_parquet_views() -> None:

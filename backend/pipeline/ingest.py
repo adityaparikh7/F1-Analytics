@@ -191,7 +191,13 @@ def _store_laps(session, session_key: str):
 
 
 def _store_results(session, session_key: str):
-    """Extract session results, write Parquet, and insert into DuckDB."""
+    """Extract session results, write Parquet, and insert into DuckDB.
+
+    Handles all session types:
+    - Race / Sprint: standard finishing order with gap computation
+    - Qualifying / Sprint Qualifying: Q1, Q2, Q3 times
+    - Practice (FP1-FP3): best lap per driver and gap to quickest
+    """
     try:
         results = session.results
     except Exception:
@@ -202,6 +208,12 @@ def _store_results(session, session_key: str):
         logger.warning("Empty results for %s", session_key)
         return
 
+    # Determine session type from key (e.g. "2025_06_Q" → "Q")
+    session_type = session_key.rsplit("_", 1)[-1]
+    is_qualifying = session_type in ("Q", "SQ", "SS")
+    is_practice = session_type in ("FP1", "FP2", "FP3")
+
+    # ── Base columns (common to all session types) ─────────────────
     df = pd.DataFrame({
         "session_key": session_key,
         "driver": results["Abbreviation"].astype(str),
@@ -212,11 +224,101 @@ def _store_results(session, session_key: str):
         "status": results.get("Status").astype(str) if "Status" in results.columns else None,
         "points": pd.to_numeric(results.get("Points"), errors="coerce") if "Points" in results.columns else None,
         "time": results.get("Time").apply(_safe_timedelta_to_seconds) if "Time" in results.columns else None,
-        "gap_to_leader": None,  # Will be computed from time deltas
-        "fastest_lap": None,    # FastF1 doesn't always have this in results
+        "gap_to_leader": None,
+        "fastest_lap": None,
         "fastest_lap_number": None,
         "pit_stops": None,
+        "q1_time": None,
+        "q2_time": None,
+        "q3_time": None,
+        "best_lap_time": None,
     })
+
+    # ── Qualifying-specific: Q1 / Q2 / Q3 times ───────────────────
+    if is_qualifying:
+        for col, target in [("Q1", "q1_time"), ("Q2", "q2_time"), ("Q3", "q3_time")]:
+            if col in results.columns:
+                df[target] = results[col].apply(_safe_timedelta_to_seconds).values
+
+        # Best lap is the best of Q1/Q2/Q3
+        q_cols = [c for c in ["q1_time", "q2_time", "q3_time"] if df[c].notna().any()]
+        if q_cols:
+            df["best_lap_time"] = df[q_cols].min(axis=1)
+
+        # Gap to leader based on best qualifying lap
+        leader_time = df["best_lap_time"].min()
+        if leader_time is not None and not pd.isna(leader_time):
+            gaps = []
+            for _, row in df.iterrows():
+                t = row["best_lap_time"]
+                if t is not None and not pd.isna(t):
+                    delta = t - leader_time
+                    gaps.append(f"+{delta:.3f}" if delta > 0 else "Leader")
+                else:
+                    gaps.append(None)
+            df["gap_to_leader"] = gaps
+
+        # Ensure position is set (FastF1 provides it for qualifying)
+        # If position column is empty, order by best_lap_time
+        if df["position"].isna().all() and df["best_lap_time"].notna().any():
+            df = df.sort_values("best_lap_time", na_position="last")
+            df["position"] = range(1, len(df) + 1)
+
+    # ── Practice-specific: best lap per driver ─────────────────────
+    elif is_practice:
+        try:
+            laps = session.laps
+            if not laps.empty:
+                # Get the best lap for each driver
+                best_laps = (
+                    laps.groupby("Driver")
+                    .apply(lambda d: d.loc[d["LapTime"].idxmin()] if d["LapTime"].notna().any() else None)
+                    .dropna(how="all")
+                )
+                if not best_laps.empty:
+                    best_map = {}
+                    for _, row in best_laps.iterrows():
+                        drv = str(row["Driver"])
+                        lt = _safe_timedelta_to_seconds(row["LapTime"])
+                        best_map[drv] = lt
+
+                    df["best_lap_time"] = df["driver"].map(best_map)
+
+                    # Compute position by best lap time
+                    df = df.sort_values("best_lap_time", na_position="last")
+                    df["position"] = range(1, len(df) + 1)
+
+                    # Gap to leader
+                    leader_time = df["best_lap_time"].min()
+                    if leader_time is not None and not pd.isna(leader_time):
+                        gaps = []
+                        for _, row in df.iterrows():
+                            t = row["best_lap_time"]
+                            if t is not None and not pd.isna(t):
+                                delta = t - leader_time
+                                gaps.append(f"+{delta:.3f}" if delta > 0 else "Leader")
+                            else:
+                                gaps.append(None)
+                        df["gap_to_leader"] = gaps
+        except Exception as exc:
+            logger.warning("Failed to compute practice results for %s: %s", session_key, exc)
+
+    # ── Race / Sprint: compute gap from time column ────────────────
+    else:
+        times = df["time"].values
+        if times is not None and len(times) > 0:
+            leader_time = None
+            gaps = []
+            for t in times:
+                if t is not None and not pd.isna(t):
+                    if leader_time is None:
+                        leader_time = t
+                        gaps.append("Leader")
+                    else:
+                        gaps.append(f"+{t - leader_time:.3f}")
+                else:
+                    gaps.append(None)
+            df["gap_to_leader"] = gaps
 
     df = df.replace({np.nan: None})
 

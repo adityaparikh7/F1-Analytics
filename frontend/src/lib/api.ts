@@ -84,6 +84,10 @@ export interface ResultData {
   fastest_lap: number | null;
   fastest_lap_number: number | null;
   pit_stops: number | null;
+  q1_time: number | null;
+  q2_time: number | null;
+  q3_time: number | null;
+  best_lap_time: number | null;
 }
 
 export interface TelemetryPoint {
