@@ -25,6 +25,7 @@ import './panels/track-map/TrackMapPanel';
 import './panels/qualifying-comparison/QualifyingComparisonPanel';
 import './panels/top-speed-heatmap/TopSpeedHeatmapPanel';
 import './panels/speed-trace/SpeedTracePanel';
+import './panels/aero-map/AeroMapPanel';
 
 const App: React.FC = () => {
   const restoreFromStorage = useLayoutStore(s => s.restoreFromStorage);
