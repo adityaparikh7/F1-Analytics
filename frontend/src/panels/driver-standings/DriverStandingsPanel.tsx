@@ -108,11 +108,6 @@ const DriverStandingsPanel: React.FC<PanelProps> = () => {
               </div>
             </div>
 
-            {/* Points */}
-            <span className="mono" style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', minWidth: 40, textAlign: 'right' }}>
-              {formatPoints(s.points)}
-            </span>
-
             {/* Wins */}
             {s.wins > 0 && (
               <span style={{
@@ -125,6 +120,11 @@ const DriverStandingsPanel: React.FC<PanelProps> = () => {
                 {s.wins}W
               </span>
             )}
+            {/* Points */}
+            <span className="mono" style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', minWidth: 40, textAlign: 'right' }}>
+              {formatPoints(s.points)}
+            </span>
+
           </div>
         );
       })}

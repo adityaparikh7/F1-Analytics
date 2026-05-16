@@ -115,32 +115,71 @@ def get_results(session_key: str) -> list[dict]:
 # ── Standings ──────────────────────────────────────────────────────────
 
 def get_driver_standings(year: int, round_number: int | None = None) -> list[dict]:
-    if round_number is not None:
-        sql = "SELECT * FROM driver_standings WHERE year = ? AND round_number = ? ORDER BY position"
-        return _fetchall_dicts(sql, [year, round_number])
-    # Latest round
     sql = """
-        SELECT * FROM driver_standings
-        WHERE year = ? AND round_number = (
-            SELECT MAX(round_number) FROM driver_standings WHERE year = ?
+        WITH max_round AS (
+            SELECT COALESCE(?, MAX(round_number)) AS rnd
+            FROM sessions
+            WHERE year = ? AND session_key IN (SELECT session_key FROM results)
+        ),
+        driver_stats AS (
+            SELECT
+                s.year,
+                r.driver,
+                MAX(r.driver_number) AS driver_number,
+                arg_max(r.team, s.round_number) AS team,
+                SUM(COALESCE(r.points, 0)) AS points,
+                SUM(CASE WHEN r.position = 1 AND s.session_type = 'R' THEN 1 ELSE 0 END) AS wins
+            FROM results r
+            JOIN sessions s ON r.session_key = s.session_key
+            CROSS JOIN max_round m
+            WHERE s.year = ? AND s.round_number <= m.rnd
+            GROUP BY s.year, r.driver
         )
+        SELECT
+            year,
+            (SELECT rnd FROM max_round) AS round_number,
+            CAST(ROW_NUMBER() OVER(ORDER BY points DESC, wins DESC) AS INTEGER) AS position,
+            driver,
+            driver_number,
+            team,
+            points,
+            CAST(wins AS INTEGER) AS wins
+        FROM driver_stats
         ORDER BY position
     """
-    return _fetchall_dicts(sql, [year, year])
+    return _fetchall_dicts(sql, [round_number, year, year])
 
 
 def get_constructor_standings(year: int, round_number: int | None = None) -> list[dict]:
-    if round_number is not None:
-        sql = "SELECT * FROM constructor_standings WHERE year = ? AND round_number = ? ORDER BY position"
-        return _fetchall_dicts(sql, [year, round_number])
     sql = """
-        SELECT * FROM constructor_standings
-        WHERE year = ? AND round_number = (
-            SELECT MAX(round_number) FROM constructor_standings WHERE year = ?
+        WITH max_round AS (
+            SELECT COALESCE(?, MAX(round_number)) AS rnd
+            FROM sessions
+            WHERE year = ? AND session_key IN (SELECT session_key FROM results)
+        ),
+        constructor_stats AS (
+            SELECT
+                s.year,
+                r.team AS constructor,
+                SUM(COALESCE(r.points, 0)) AS points,
+                SUM(CASE WHEN r.position = 1 AND s.session_type = 'R' THEN 1 ELSE 0 END) AS wins
+            FROM results r
+            JOIN sessions s ON r.session_key = s.session_key
+            CROSS JOIN max_round m
+            WHERE s.year = ? AND s.round_number <= m.rnd AND r.team IS NOT NULL AND r.team != 'None' AND r.team != ''
+            GROUP BY s.year, r.team
         )
+        SELECT
+            year,
+            (SELECT rnd FROM max_round) AS round_number,
+            CAST(ROW_NUMBER() OVER(ORDER BY points DESC, wins DESC) AS INTEGER) AS position,
+            constructor,
+            points,
+            CAST(wins AS INTEGER) AS wins
+        FROM constructor_stats
         ORDER BY position
     """
-    return _fetchall_dicts(sql, [year, year])
+    return _fetchall_dicts(sql, [round_number, year, year])
 
 
 # ── Calendar ───────────────────────────────────────────────────────────

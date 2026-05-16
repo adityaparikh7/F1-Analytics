@@ -64,12 +64,16 @@ const DEFAULT_PANELS: PanelInstance[] = [
   { instanceId: 'track-map_default', panelTypeId: 'track-map', config: {} },
   { instanceId: 'lap-distribution_default', panelTypeId: 'lap-distribution', config: {} },
   { instanceId: 'strategy-board_default', panelTypeId: 'strategy-board', config: {} },
+  { instanceId: 'driver-standings_default', panelTypeId: 'driver-standings', config: {} },
+  { instanceId: 'constructor-standings_default', panelTypeId: 'constructor-standings', config: {} },
 ];
 
 const DEFAULT_LAYOUT: Layout = [
   { i: 'session-results_default', x: 0, y: 0, w: 6, h: 5, minW: 6, minH: 3 },
-  { i: 'track-map_default', x: 6, y: 0, w: 6, h: 5, minW: 4, minH: 3 },
-  { i: 'lap-distribution_default', x: 0, y: 5, w: 6, h: 4, minW: 4, minH: 3 },
+  { i: 'driver-standings_default', x: 6, y: 0, w: 3, h: 3, minW: 3, minH: 2 },
+  { i: 'constructor-standings_default', x: 12, y: 0, w: 3, h: 3, minW: 3, minH: 2 },
+  { i: 'track-map_default', x: 0, y: 0, w: 6, h: 6, minW: 4, minH: 3 },
+  { i: 'lap-distribution_default', x: 6, y: 6, w: 6, h: 4, minW: 4, minH: 3 },
   { i: 'strategy-board_default', x: 6, y: 5, w: 6, h: 4, minW: 6, minH: 3 },
 ];
 
