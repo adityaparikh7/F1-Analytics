@@ -113,6 +113,14 @@ PANEL_CATALOGUE = [
         "minSize": {"w": 6, "h": 4},
     },
     {
+        "id": "position-changes",
+        "title": "Position Changes",
+        "category": "performance",
+        "description": "Position of each driver at the end of each lap during a race or sprint.",
+        "defaultSize": {"w": 12, "h": 6},
+        "minSize": {"w": 6, "h": 4},
+    },
+    {
         "id": "aero-map",
         "title": "Aero Map",
         "category": "telemetry",
