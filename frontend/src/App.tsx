@@ -20,6 +20,7 @@ import './panels/season-calendar/SeasonCalendarPanel';
 import './panels/driver-standings/DriverStandingsPanel';
 import './panels/constructor-standings/ConstructorStandingsPanel';
 import './panels/lap-progression/LapProgressionPanel';
+import './panels/position-changes/PositionChangesPanel';
 import './panels/telemetry-explorer/TelemetryExplorerPanel';
 import './panels/track-map/TrackMapPanel';
 import './panels/qualifying-comparison/QualifyingComparisonPanel';

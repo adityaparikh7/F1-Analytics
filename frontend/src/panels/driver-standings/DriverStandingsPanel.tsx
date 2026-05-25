@@ -97,6 +97,7 @@ const DriverStandingsPanel: React.FC<PanelProps> = () => {
                 borderRadius: 2,
                 marginTop: 3,
                 overflow: 'hidden',
+                display:"none"
               }}>
                 <div style={{
                   height: '100%',

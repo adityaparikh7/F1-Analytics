@@ -88,7 +88,7 @@ const ConstructorStandingsPanel: React.FC<PanelProps> = () => {
 
             {/* Constructor info */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', marginBottom: 3 }}>
+              <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', marginBottom: 0 }}>
                 {s.constructor}
               </div>
               {/* Points bar */}
@@ -97,6 +97,7 @@ const ConstructorStandingsPanel: React.FC<PanelProps> = () => {
                 background: 'var(--bg-raised)',
                 borderRadius: 3,
                 overflow: 'hidden',
+                display:"none"
               }}>
                 <div style={{
                   height: '100%',

@@ -60,6 +60,7 @@ function persistToStorage(state: { currentLayout: Layout; activePanels: PanelIns
 
 // Default layout for fresh installs
 const DEFAULT_PANELS: PanelInstance[] = [
+  { instanceId: 'season-calendar_default', panelTypeId: 'season-calendar', config: {} },
   { instanceId: 'session-results_default', panelTypeId: 'session-results', config: {} },
   { instanceId: 'track-map_default', panelTypeId: 'track-map', config: {} },
   { instanceId: 'lap-distribution_default', panelTypeId: 'lap-distribution', config: {} },
@@ -69,10 +70,11 @@ const DEFAULT_PANELS: PanelInstance[] = [
 ];
 
 const DEFAULT_LAYOUT: Layout = [
-  { i: 'session-results_default', x: 0, y: 0, w: 6, h: 5, minW: 6, minH: 3 },
+  { i: 'season-calendar_default', x: 0, y: 0, w: 6, h: 3, minW: 6, minH: 1 },
+  { i: 'session-results_default', x: 0, y: 0, w: 6, h: 4, minW: 6, minH: 3 },
   { i: 'driver-standings_default', x: 6, y: 0, w: 3, h: 3, minW: 3, minH: 2 },
   { i: 'constructor-standings_default', x: 12, y: 0, w: 3, h: 3, minW: 3, minH: 2 },
-  { i: 'track-map_default', x: 0, y: 0, w: 6, h: 6, minW: 4, minH: 3 },
+  { i: 'track-map_default', x: 0, y: 0, w: 6, h: 4, minW: 4, minH: 3 },
   { i: 'lap-distribution_default', x: 6, y: 6, w: 6, h: 4, minW: 4, minH: 3 },
   { i: 'strategy-board_default', x: 6, y: 5, w: 6, h: 4, minW: 6, minH: 3 },
 ];
