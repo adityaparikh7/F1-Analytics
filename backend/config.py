@@ -24,6 +24,7 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 # ── Data ───────────────────────────────────────────────────────────────
 MIN_SEASON = 2018  # Earliest season with reliable FastF1 data
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+AUTO_INGEST_INTERVAL_HOURS = int(os.getenv("AUTO_INGEST_INTERVAL_HOURS", "6"))
 
 # ── Parquet subdirectories ─────────────────────────────────────────────
 PARQUET_SESSIONS_DIR = PARQUET_DIR / "sessions"

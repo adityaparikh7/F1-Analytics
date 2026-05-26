@@ -19,6 +19,7 @@ export const Sidebar: React.FC = () => {
     setActiveSession,
     selectedYear,
     loadSessions,
+    forceSyncSeason,
   } = useSessionStore();
 
   const [ingesting, setIngesting] = useState(false);
@@ -51,6 +52,15 @@ export const Sidebar: React.FC = () => {
       await api.ingestCalendar(selectedYear);
     } catch (err) {
       console.error('Calendar ingest failed:', err);
+    }
+  };
+
+  const handleSyncSeason = async () => {
+    setIngesting(true);
+    try {
+      await forceSyncSeason(selectedYear);
+    } finally {
+      setIngesting(false);
     }
   };
 
@@ -103,6 +113,15 @@ export const Sidebar: React.FC = () => {
             style={{ fontSize: 'var(--fs-sm)' }}
           >
             📅
+          </button>
+          <button
+            className="topbar__btn"
+            onClick={handleSyncSeason}
+            disabled={ingesting}
+            title="Sync missing sessions"
+            style={{ fontSize: 'var(--fs-sm)', opacity: ingesting ? 0.6 : 1 }}
+          >
+            🔄
           </button>
         </div>
       </div>

@@ -456,3 +456,78 @@ def fetch_circuit_info(
     except Exception as exc:
         logger.warning("Failed to fetch circuit info: %s", exc)
         return []
+
+# ── Auto Ingestion ─────────────────────────────────────────────────────────
+
+def sync_season_sessions(year: int) -> None:
+    """Check a specific season's schedule and ingest any completed sessions missing from DB."""
+    import datetime
+    
+    _init_fastf1()
+    
+    now_utc = pd.Timestamp.utcnow()
+    conn = get_connection()
+    
+    # Map from FastF1 session name to short code
+    # We only auto-ingest points-awarding sessions (Sprint and Race) to preserve the 500 calls/hr rate limit
+    session_map = {
+        # "Practice 1": "FP1",
+        # "Practice 2": "FP2",
+        # "Practice 3": "FP3",
+        # "Qualifying": "Q",
+        # "Sprint Qualifying": "SQ",
+        # "Sprint Shootout": "SQ",
+        "Sprint": "S",
+        "Race": "R",
+    }
+    
+    # Pre-fetch all ingested session keys to avoid repeated queries
+    try:
+        existing_keys = {row[0] for row in conn.execute("SELECT session_key FROM sessions").fetchall()}
+    except Exception:
+        existing_keys = set()
+    
+    try:
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
+    except Exception as e:
+        logger.warning("Failed to fetch schedule for %s: %s", year, e)
+        return
+        
+    for _, event in schedule.iterrows():
+        round_number = event.get("RoundNumber")
+        if pd.isna(round_number) or int(round_number) == 0:
+            continue
+            
+        round_number = int(round_number)
+        
+        # Check all 5 possible session columns in the schedule
+        for i in range(1, 6):
+            session_name_col = f"Session{i}"
+            session_date_col = f"Session{i}DateUtc"
+            
+            if session_name_col in event and session_date_col in event:
+                session_name = event.get(session_name_col)
+                session_date = event.get(session_date_col)
+                
+                if pd.isna(session_name) or pd.isna(session_date) or not session_name:
+                    continue
+                    
+                short_code = session_map.get(session_name)
+                if not short_code:
+                    continue
+                    
+                session_time = pd.Timestamp(session_date)
+                if session_time.tzinfo is None:
+                    session_time = session_time.tz_localize('UTC')
+                    
+                # If session started more than 3 hours ago
+                if now_utc > session_time + pd.Timedelta(hours=3):
+                    session_key = _make_session_key(year, round_number, short_code)
+                    if session_key not in existing_keys:
+                        logger.info("Auto-ingesting missing session: %s", session_key)
+                        try:
+                            ingest_session(year, round_number, None, short_code)
+                            existing_keys.add(session_key)
+                        except Exception as e:
+                            logger.error("Failed to auto-ingest %s: %s", session_key, e)
+

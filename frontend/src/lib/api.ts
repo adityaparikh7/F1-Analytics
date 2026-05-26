@@ -225,4 +225,7 @@ export const api = {
 
   ingestCalendar: (year: number) =>
     request<{ status: string }>(`/calendar/ingest?year=${year}`, { method: 'POST' }),
+
+  syncSeasonSessions: (year: number) =>
+    request<{ status: string }>(`/sessions/sync?year=${year}`, { method: 'POST' }),
 };

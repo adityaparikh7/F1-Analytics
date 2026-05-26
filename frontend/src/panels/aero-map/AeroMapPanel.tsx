@@ -467,11 +467,17 @@ const AeroMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
         ))}
 
         {/* Team labels */}
-        {quadrantData.map((d, i) => (
-          <text key={`t${i}`} x={sx(d.meanSpeed)} y={sy(d.topSpeed) - 12} fill="var(--text-primary)" fontSize={9} fontWeight={600} textAnchor="middle">
-            {d.team.length > 14 ? d.driver : d.team}
-          </text>
-        ))}
+        {quadrantData.map((d, i) => {
+          let tName = d.team;
+          if (tName === 'Red Bull Racing') tName = 'Red Bull';
+          else if (tName === 'Haas F1 Team') tName = 'Haas';
+          
+          return (
+            <text key={`t${i}`} x={sx(d.meanSpeed)} y={sy(d.topSpeed) - 12} fill="var(--text-primary)" fontSize={9} fontWeight={600} textAnchor="middle">
+              {tName.length > 14 ? d.driver : tName}
+            </text>
+          );
+        })}
       </svg>
     );
   };

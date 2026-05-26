@@ -33,7 +33,9 @@ async def lifespan(app: FastAPI):
     logger.info("F1 Pitwall backend starting up")
     initialise_schema()
     logger.info("Schema initialised")
+    
     yield
+    
     # Shutdown
     close_connection()
     logger.info("F1 Pitwall backend shut down")

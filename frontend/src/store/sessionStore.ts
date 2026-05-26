@@ -19,12 +19,14 @@ interface SessionState {
 
   // Selected year for filtering
   selectedYear: number;
+  syncedYears: Set<number>;
 
   // Actions
   setActiveSession: (key: string) => Promise<void>;
   clearActiveSession: () => void;
   loadSessions: (year?: number) => Promise<void>;
   setSelectedYear: (year: number) => void;
+  forceSyncSeason: (year: number) => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -33,6 +35,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   sessionsLoading: false,
   selectedYear: new Date().getFullYear(),
+  syncedYears: new Set<number>(),
 
   setActiveSession: async (key: string) => {
     try {
@@ -64,6 +67,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setSelectedYear: (year: number) => {
     set({ selectedYear: year });
-    get().loadSessions(year);
+    const synced = get().syncedYears;
+    
+    // Auto-sync missing sessions if not done yet for this year
+    if (!synced.has(year)) {
+      api.syncSeasonSessions(year).catch(console.error);
+      const newSynced = new Set(synced);
+      newSynced.add(year);
+      set({ syncedYears: newSynced });
+      
+      // Load initially, and reload after a short delay in case backend finishes quick sync
+      get().loadSessions(year);
+      setTimeout(() => get().loadSessions(year), 3000);
+    } else {
+      get().loadSessions(year);
+    }
+  },
+
+  forceSyncSeason: async (year: number) => {
+    try {
+      await api.syncSeasonSessions(year);
+      // Backend handles this in the background, we can reload locally just to be safe
+      setTimeout(() => get().loadSessions(year), 3000);
+    } catch (err) {
+      console.error('Failed to sync season sessions:', err);
+    }
   },
 }));

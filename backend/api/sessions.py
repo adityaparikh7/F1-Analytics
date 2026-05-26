@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from backend.db import queries
-from backend.pipeline.ingest import ingest_session, ingest_calendar, fetch_circuit_info
+from backend.pipeline.ingest import ingest_session, ingest_calendar, fetch_circuit_info, sync_season_sessions
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,16 @@ async def trigger_calendar_ingest(
     """Fetch and store the season calendar."""
     background_tasks.add_task(ingest_calendar, year)
     return {"status": "calendar_ingestion_started", "year": year}
+
+
+@router.post("/sessions/sync")
+async def sync_season(
+    background_tasks: BackgroundTasks,
+    year: int = Query(..., ge=2018),
+):
+    """Background sync missing sessions for a specific season."""
+    background_tasks.add_task(sync_season_sessions, year)
+    return {"status": "sync_started", "year": year}
 
 
 @router.get("/calendar")
