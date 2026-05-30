@@ -145,6 +145,10 @@ export interface CalendarEvent {
   circuit_name: string;
   event_date: string | null;
   event_format: string;
+  winner: string | null;
+  winner_team: string | null;
+  sprint_winner: string | null;
+  sprint_winner_team: string | null;
 }
 
 export interface PanelCatalogueItem {
