@@ -1,7 +1,12 @@
 /**
- * F1 Pitwall — Lap Time Distribution Panel
- *
- * Box-plot style distribution of lap times by driver.
+ * LapDistributionPanel.tsx
+ * 
+ * Displays a box plot distribution of lap times for each driver in the session, with options to filter by proper laps and finishers.
+ * Each driver's laps are shown as a box plot, with individual lap points colored by compound.
+ * The panel fetches lap and result data from the API and computes the necessary statistics for display.
+ * It also includes a button to navigate to a full-page analysis view and checkboxes to toggle filters.
+ * Uses Plotly for rendering the box plots and points, with a custom color scheme for compounds and driver colors.
+ * The component handles loading and error states gracefully, and updates the display based on user interactions with the filters.
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -10,15 +15,29 @@ import type { PanelProps } from '../../core/panelRegistry';
 import type { LapData, ResultData } from '../../lib/api';
 import { api } from '../../lib/api';
 import { getDriverColour } from '../../lib/colours';
-import { formatLapTime } from '../../lib/format';
+import { formatLapTime, getProperLapThreshold } from '../../lib/format';
+import _Plot from 'react-plotly.js';
+const Plot = (_Plot as any).default || _Plot;
+import { useNavigate } from 'react-router-dom';
 
-const LapDistributionPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
+const compoundColors: Record<string, string> = {
+  SOFT: '#FF3333',
+  MEDIUM: '#FFD700',
+  HARD: '#FFFFFF',
+  INTERMEDIATE: '#3CB371',
+  WET: '#1E90FF',
+  UNKNOWN: '#888888',
+};
+
+const LapDistributionPanel: React.FC<PanelProps> = ({ sessionKey }) => {
+  const navigate = useNavigate();
   const [laps, setLaps] = useState<LapData[]>([]);
   const [results, setResults] = useState<ResultData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lapFilter, setLapFilter] = useState<'timed' | 'all'>('timed');
-  const [onlyFinishers, setOnlyFinishers] = useState(false);
+  
+  const [filterProper, setFilterProper] = useState(true);
+  const [filterFinishers, setFilterFinishers] = useState(false);
 
   useEffect(() => {
     if (!sessionKey) return;
@@ -45,12 +64,21 @@ const LapDistributionPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
     return () => { isMounted = false; };
   }, [sessionKey]);
 
-  // Compute per-driver statistics
-  const driverStats = useMemo(() => {
-    const map = new Map<string, { times: number[]; team: string | null }>();
-    
+  // Compute filtered laps and stats
+  const { driverStats } = useMemo(() => {
+    if (!laps.length) return { driverStats: [] };
+
+    let fastestLap = Infinity;
+    for (const lap of laps) {
+      if (lap.lap_time && lap.lap_time > 0 && lap.lap_time < fastestLap) {
+        fastestLap = lap.lap_time;
+      }
+    }
+
+    const threshold107 = getProperLapThreshold(fastestLap);
+
     const finishingDrivers = new Set<string>();
-    if (onlyFinishers) {
+    if (filterFinishers) {
       for (const r of results) {
         if (r.status === 'Finished' || r.status === 'Lapped' || r.status?.includes('+')) {
           finishingDrivers.add(r.driver);
@@ -58,50 +86,39 @@ const LapDistributionPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
       }
     }
 
-    for (const lap of laps) {
-      if (lap.lap_time == null || lap.lap_time <= 0) continue;
+    const validLaps = laps.filter(lap => {
+      if (lap.lap_time == null || lap.lap_time <= 0) return false;
       
-      if (lapFilter === 'timed') {
-        if (lap.is_pit_in_lap || lap.is_pit_out_lap) continue;
-        // You could also add track_status !== '1' here if desired
+      if (filterProper) {
+        if (lap.is_pit_in_lap || lap.is_pit_out_lap) return false;
+        if (lap.lap_time > threshold107) return false;
       }
       
-      if (onlyFinishers && !finishingDrivers.has(lap.driver)) {
-        continue;
+      if (filterFinishers && !finishingDrivers.has(lap.driver)) {
+        return false;
       }
-      
-      if (!map.has(lap.driver)) map.set(lap.driver, { times: [], team: lap.team });
-      map.get(lap.driver)!.times.push(lap.lap_time);
+
+      return true;
+    });
+
+    const driverMap = new Map<string, { team: string | null; laps: LapData[] }>();
+
+    for (const lap of validLaps) {
+      if (!driverMap.has(lap.driver)) driverMap.set(lap.driver, { team: lap.team, laps: [] });
+      driverMap.get(lap.driver)!.laps.push(lap);
     }
 
-    return Array.from(map.entries())
-      .map(([driver, { times, team }]) => {
-        const sorted = [...times].sort((a, b) => a - b);
-        const len = sorted.length;
-        if (len === 0) return null;
-        return {
-          driver,
-          team,
-          min: sorted[0],
-          q1: sorted[Math.floor(len * 0.25)],
-          median: sorted[Math.floor(len * 0.5)],
-          q3: sorted[Math.floor(len * 0.75)],
-          max: sorted[len - 1],
-          count: len,
-        };
+    const stats = Array.from(driverMap.entries())
+      .map(([driver, { team, laps }]) => {
+        // We sort by median to match the original SVG implementation ordering
+        const sortedTimes = [...laps].map(l => l.lap_time!).sort((a, b) => a - b);
+        const median = sortedTimes[Math.floor(sortedTimes.length / 2)];
+        return { driver, team, laps, median };
       })
-      .filter(Boolean)
-      .sort((a, b) => a!.median - b!.median) as Array<{
-        driver: string;
-        team: string | null;
-        min: number;
-        q1: number;
-        median: number;
-        q3: number;
-        max: number;
-        count: number;
-      }>;
-  }, [laps, results, lapFilter, onlyFinishers]);
+      .sort((a, b) => a.median - b.median);
+
+    return { driverStats: stats };
+  }, [laps, results, filterProper, filterFinishers]);
 
   if (!sessionKey) {
     return <div className="state-empty">Select a session to view lap distributions</div>;
@@ -121,101 +138,108 @@ const LapDistributionPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
     return <div className="state-error">{error}</div>;
   }
 
-  // SVG box plot
-  const chartWidth = Math.max(width - 80, 200);
-  const rowH = 22;
-  const chartHeight = driverStats.length * rowH + 30;
-  
-  let globalMin = 0, globalMax = 0, range = 1;
-  if (driverStats.length > 0) {
-    globalMin = Math.min(...driverStats.map(d => d.min));
-    globalMax = Math.max(...driverStats.map(d => d.max));
-    range = globalMax - globalMin || 1;
-  }
-  const xScale = (val: number) => 70 + ((val - globalMin) / range) * (chartWidth - 20);
+  const driverBoxTraces: Plotly.Data[] = driverStats.map(stat => {
+    return {
+      type: 'box',
+      x: stat.laps.map(() => stat.driver),
+      y: stat.laps.map(l => l.lap_time),
+      name: stat.driver,
+      boxpoints: false,
+      line: { color: getDriverColour(stat.driver, stat.team), width: 1 },
+      fillcolor: 'rgba(0,0,0,0)',
+      showlegend: false,
+    };
+  });
+
+  const compounds = ['SOFT', 'MEDIUM', 'HARD', 'INTERMEDIATE', 'WET', 'UNKNOWN'];
+  const driverCompoundTraces: Plotly.Data[] = compounds.map(comp => {
+    // Collect all laps for this compound across all drivers to keep a single trace per compound (for legend if needed, though hidden here)
+    const compLaps = driverStats.flatMap(stat => stat.laps).filter(l => (l.compound?.toUpperCase() || 'UNKNOWN') === comp);
+    if (compLaps.length === 0) return null;
+    
+    return {
+      type: 'box',
+      x: compLaps.map(l => l.driver),
+      y: compLaps.map(l => l.lap_time),
+      name: comp,
+      boxpoints: 'all',
+      jitter: 0.3,
+      pointpos: 0,
+      fillcolor: 'rgba(0,0,0,0)',
+      line: { color: 'rgba(0,0,0,0)', width: 0 },
+      marker: {
+        color: compoundColors[comp],
+        size: 3,
+        opacity: 0.8,
+      },
+      hoverinfo: 'text',
+      hoveron: 'points',
+      text: compLaps.map(l => `Lap ${l.lap_number}<br>${formatLapTime(l.lap_time)}<br>${l.compound}`),
+      showlegend: false,
+    } as Plotly.Data;
+  }).filter((t): t is Plotly.Data => t !== null);
+
+  const plotData = [...driverBoxTraces, ...driverCompoundTraces];
+
+  const layoutBase: Partial<Plotly.Layout> = {
+    paper_bgcolor: 'transparent',
+    plot_bgcolor: 'transparent',
+    font: { color: '#a1a1aa', family: 'var(--font-sans)', size: 10 },
+    margin: { t: 10, r: 10, b: 30, l: 40 },
+    yaxis: {
+      gridcolor: '#3f3f46',
+      zeroline: false,
+      autorange: 'reversed' as const,
+    },
+    xaxis: {
+      gridcolor: '#3f3f46',
+      zeroline: false,
+    },
+    boxmode: 'overlay' as const,
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '0 0 var(--space-2) 0', display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-          <input 
-            type="checkbox" 
-            checked={onlyFinishers} 
-            onChange={e => setOnlyFinishers(e.target.checked)} 
-          />
-          Only Finishers
-        </label>
-        <select 
-          value={lapFilter} 
-          onChange={e => setLapFilter(e.target.value as 'timed' | 'all')}
-          style={{ fontSize: 'var(--fs-xs)', padding: '4px 8px' }}
+      <div style={{ padding: '0 0 var(--space-2) 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button 
+          className="btn btn--outline" 
+          style={{ fontSize: 'var(--fs-xs)', padding: '2px 8px' }}
+          onClick={() => navigate('/race-pace')}
+          title="Open Full Page Analysis"
         >
-          <option value="timed">Proper Timed Laps</option>
-          <option value="all">All Laps</option>
-        </select>
+          ⤢ Expand
+        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={filterFinishers} 
+              onChange={e => setFilterFinishers(e.target.checked)} 
+            />
+            Only Finishers
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={filterProper} 
+              onChange={e => setFilterProper(e.target.checked)} 
+            />
+            Proper Laptimes
+          </label>
+        </div>
       </div>
       
       {driverStats.length === 0 ? (
         <div className="state-empty">No lap time data available for this filter</div>
       ) : (
-        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
-          <svg
-            width={chartWidth + 80}
-            height={chartHeight}
-            style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}
-          >
-            {driverStats.map((d, i) => {
-              const y = i * rowH + 4;
-              const colour = getDriverColour(d.driver, d.team);
-              const boxH = 14;
-
-              return (
-                <g key={d.driver}>
-                  {/* Driver label */}
-                  <text x={60} y={y + boxH / 2 + 4} fill={colour} textAnchor="end" fontWeight={600} fontSize={11}>
-                    {d.driver}
-                  </text>
-
-                  {/* Whisker line (min to max) */}
-                  <line x1={xScale(d.min)} y1={y + boxH / 2} x2={xScale(d.max)} y2={y + boxH / 2} stroke={colour} strokeWidth={1} opacity={0.5} />
-
-                  {/* Box (Q1 to Q3) */}
-                  <rect
-                    x={xScale(d.q1)}
-                    y={y}
-                    width={Math.max(xScale(d.q3) - xScale(d.q1), 1)}
-                    height={boxH}
-                    rx={2}
-                    fill={colour}
-                    opacity={0.3}
-                    stroke={colour}
-                    strokeWidth={1}
-                  />
-
-                  {/* Median line */}
-                  <line x1={xScale(d.median)} y1={y} x2={xScale(d.median)} y2={y + boxH} stroke={colour} strokeWidth={2} />
-
-                  {/* Min/Max caps */}
-                  <line x1={xScale(d.min)} y1={y + 3} x2={xScale(d.min)} y2={y + boxH - 3} stroke={colour} strokeWidth={1} opacity={0.5} />
-                  <line x1={xScale(d.max)} y1={y + 3} x2={xScale(d.max)} y2={y + boxH - 3} stroke={colour} strokeWidth={1} opacity={0.5} />
-                </g>
-              );
-            })}
-
-            {/* Time axis */}
-            {Array.from({ length: 6 }, (_, i) => globalMin + (range * i) / 5).map((val, i) => (
-              <text
-                key={i}
-                x={xScale(val)}
-                y={driverStats.length * rowH + 20}
-                fill="var(--text-tertiary)"
-                textAnchor="middle"
-                fontSize={9}
-              >
-                {formatLapTime(val)}
-              </text>
-            ))}
-          </svg>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <Plot
+            data={plotData}
+            layout={layoutBase}
+            style={{ width: '100%', height: '100%' }}
+            useResizeHandler={true}
+            config={{ responsive: true, displayModeBar: false }}
+          />
         </div>
       )}
     </div>

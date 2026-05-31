@@ -9,6 +9,8 @@ import { Topbar } from './components/Topbar';
 import { Sidebar } from './components/Sidebar';
 import { GridCanvas } from './components/GridCanvas';
 import { CatalogueDrawer } from './components/CatalogueDrawer';
+import { Routes, Route } from 'react-router-dom';
+import RacePacePage from './pages/RacePacePage';
 
 // ── Register all panels ─────────────────────────────────────────────
 // Each import triggers the registerPanel() call in the module
@@ -33,7 +35,10 @@ const App: React.FC = () => {
       <Topbar />
       <div className="app-layout">
         <Sidebar />
-        <GridCanvas />
+        <Routes>
+          <Route path="/" element={<GridCanvas />} />
+          <Route path="/race-pace" element={<RacePacePage />} />
+        </Routes>
       </div>
       <CatalogueDrawer />
     </>

@@ -34,27 +34,32 @@ export const TEAM_COLOURS: Record<string, string> = {
 // ── Driver → Team Mapping (2025 season) ─────────────────────────────
 
 export const DRIVER_TEAMS: Record<string, string> = {
-  // 'VER': 'Red Bull Racing',
-  // 'LAW': 'Red Bull Racing',
-  // 'LEC': 'Ferrari',
-  // 'HAM': 'Ferrari',
-  // 'RUS': 'Mercedes',
-  // 'ANT': 'Mercedes',
-  // 'NOR': 'McLaren',
-  // 'PIA': 'McLaren',
-  // 'ALO': 'Aston Martin',
-  // 'STR': 'Aston Martin',
-  // 'GAS': 'Alpine',
-  // 'DOO': 'Alpine',
-  // 'ALB': 'Williams',
-  // 'SAI': 'Williams',
-  // 'TSU': 'Racing Bulls',
-  // 'HAD': 'Racing Bulls',
-  // 'HUL': 'Haas F1 Team',
-  // 'BEA': 'Haas F1 Team',
-  // 'BOT': 'Kick Sauber',
-  // 'ZHO': 'Kick Sauber',
+  'VER': 'Red Bull Racing',
+  'LAW': 'Red Bull Racing',
+  'LEC': 'Ferrari',
+  'HAM': 'Ferrari',
+  'RUS': 'Mercedes',
+  'ANT': 'Mercedes',
+  'NOR': 'McLaren',
+  'PIA': 'McLaren',
+  'ALO': 'Aston Martin',
+  'STR': 'Aston Martin',
+  'GAS': 'Alpine',
+  'DOO': 'Alpine',
+  'ALB': 'Williams',
+  'SAI': 'Williams',
+  'TSU': 'Racing Bulls',
+  'HAD': 'Racing Bulls',
+  'HUL': 'Haas F1 Team',
+  'BEA': 'Haas F1 Team',
+  'BOT': 'Kick Sauber',
+  'ZHO': 'Kick Sauber',
 };
+
+export function getTeamColour(team: string | null | undefined): string {
+  if (!team) return '#888890';
+  return TEAM_COLOURS[team] || '#888890';
+}
 
 export function getDriverColour(driver: string, team?: string | null): string {
   // Try team first (most reliable)
