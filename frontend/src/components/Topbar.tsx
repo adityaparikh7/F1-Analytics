@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useSessionStore } from '../store/sessionStore';
 import { useUIStore } from '../store/uiStore';
 import { useLayoutStore } from '../store/layoutStore';
@@ -15,10 +16,29 @@ export const Topbar: React.FC = () => {
 
   return (
     <header className="topbar">
-      {/* Logo */}
-      <div className="topbar__logo" onClick={toggleSidebar} style={{ cursor: 'pointer' }}>
-        <div className="topbar__logo-icon" />
-        <span>PITWALL</span>
+      {/* Sidebar Toggle & Logo */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <button
+          onClick={toggleSidebar}
+          className="topbar__btn"
+          style={{
+            padding: '4px',
+            minWidth: 'auto',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title="Toggle Sidebar"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path fillRule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+          </svg>
+        </button>
+        <Link to="/" className="topbar__logo">
+          <div className="topbar__logo-icon" />
+          <span>PITWALL</span>
+        </Link>
       </div>
 
       {/* Session breadcrumb */}

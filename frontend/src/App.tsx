@@ -26,7 +26,8 @@ import './panels/telemetry-explorer/TelemetryExplorerPanel';
 import './panels/track-map/TrackMapPanel';
 import './panels/qualifying-comparison/QualifyingComparisonPanel';
 import './panels/top-speed-plot/TopSpeedPlotPanel';
-import './panels/speed-trace/SpeedTracePanel';
+import './panels/driving-phases-plot/DrivingPhasesPlotPanel';
+// import './panels/speed-trace/SpeedTracePanel';
 import './panels/aero-map/AeroMapPanel';
 
 const App: React.FC = () => {

@@ -110,6 +110,18 @@ export interface TelemetryResponse {
   data: TelemetryPoint[];
 }
 
+export interface TopSpeedData {
+  driver: string;
+  top_speeds: (number | null)[];
+  average: number | null;
+  best: number | null;
+}
+
+export interface TopSpeedsResponse {
+  source: string;
+  data: TopSpeedData[];
+}
+
 export interface CornerData {
   number: number;
   letter: string | null;
@@ -193,6 +205,12 @@ export const api = {
     const params = new URLSearchParams({ driver, lap });
     if (downsample) params.set('downsample', String(downsample));
     return request<TelemetryResponse>(`/sessions/${key}/telemetry?${params}`);
+  },
+
+  getTopSpeeds: (key: string, topN?: number) => {
+    const params = new URLSearchParams();
+    if (topN) params.set('top_n', String(topN));
+    return request<TopSpeedsResponse>(`/sessions/${key}/top-speeds?${params}`);
   },
 
   getCircuitInfo: (key: string) =>
