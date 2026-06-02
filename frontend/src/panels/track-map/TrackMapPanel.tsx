@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
-import type { TelemetryResponse } from '../../lib/api';
+import type { TelemetryResponse, SessionMeta } from '../../lib/api';
 import { api } from '../../lib/api';
 
 function speedToColour(speed: number, minSpeed: number, maxSpeed: number): string {
@@ -28,6 +28,7 @@ function speedToColour(speed: number, minSpeed: number, maxSpeed: number): strin
 const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
   const [driver, setDriver] = useState('');
   const [tel, setTel] = useState<TelemetryResponse | null>(null);
+  const [sessionMeta, setSessionMeta] = useState<SessionMeta | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,8 +41,13 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
       setLoading(true);
       setError(null);
       try {
-        const laps = await api.getLaps(sessionKey);
+        const [meta, laps] = await Promise.all([
+          api.getSession(sessionKey),
+          api.getLaps(sessionKey)
+        ]);
+
         if (!isMounted) return;
+        setSessionMeta(meta);
 
         const validLaps = laps.filter(l => l.lap_time != null);
         if (validLaps.length === 0) {
@@ -86,7 +92,8 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
 
   if (!sessionKey) return <div className="state-empty">Select a session to view track map</div>;
 
-  const chartSize = Math.min(Math.max(width - 20, 200), Math.max(height - 100, 200));
+  const svgWidth = Math.max(width - 20, 200);
+  const svgHeight = Math.max(height - 120, 200);
   const pad = 20;
 
   const points = tel?.data.filter(d => d.x != null && d.y != null) || [];
@@ -94,27 +101,32 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
   const ys = points.map(d => d.y!);
   const speeds = points.map(d => d.speed || 0);
   
-  // Calculate bounds with padding
-  const minX = Math.min(...xs, 0);
-  const maxX = Math.max(...xs, 1);
-  const minY = Math.min(...ys, 0);
-  const maxY = Math.max(...ys, 1);
-  const minSpeed = Math.min(...speeds, 0);
-  const maxSpeed = Math.max(...speeds, 350);
+  // Calculate bounds
+  const minX = points.length > 0 ? Math.min(...xs) : 0;
+  const maxX = points.length > 0 ? Math.max(...xs) : 1;
+  const minY = points.length > 0 ? Math.min(...ys) : 0;
+  const maxY = points.length > 0 ? Math.max(...ys) : 1;
+  const minSpeed = points.length > 0 ? Math.min(...speeds) : 0;
+  const maxSpeed = points.length > 0 ? Math.max(...speeds) : 350;
   
   const rangeX = maxX - minX || 1;
   const rangeY = maxY - minY || 1;
-  const scale = (chartSize - pad * 2) / Math.max(rangeX, rangeY);
+
+  // Maintain aspect ratio while fitting into available width/height
+  const scale = Math.min(
+    (svgWidth - pad * 2) / rangeX,
+    (svgHeight - pad * 2) / rangeY
+  );
 
   // Center the map in the SVG
-  const offsetX = (chartSize - rangeX * scale) / 2 - minX * scale;
-  const offsetY = (chartSize - rangeY * scale) / 2 - minY * scale;
+  const offsetX = (svgWidth - rangeX * scale) / 2 - minX * scale;
+  const offsetY = (svgHeight - rangeY * scale) / 2 - minY * scale;
 
   const mapX = (x: number) => x * scale + offsetX;
-  const mapY = (y: number) => chartSize - (y * scale + offsetY); // flip Y for screen coordinates
+  const mapY = (y: number) => svgHeight - (y * scale + offsetY); // flip Y for screen coordinates
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center', flexShrink: 0 }}>
         <input type="text" placeholder="Driver (e.g. VER or 1)" value={driver}
           onChange={e => setDriver(e.target.value.toUpperCase())}
@@ -131,7 +143,7 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
         {points.length > 0 && (
-          <svg width={chartSize} height={chartSize} style={{ display: 'block', margin: '0 auto' }}>
+          <svg width={svgWidth} height={svgHeight} style={{ display: 'block', margin: '0 auto' }}>
             {/* Track trace coloured by speed */}
             {points.map((p, i) => {
               if (i === 0) return null;
@@ -154,13 +166,21 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
 
         {/* Speed legend */}
         {points.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '8px', flexShrink: 0 }}>
             <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{Math.round(minSpeed)} km/h</span>
             <div style={{
               width: 120, height: 8, borderRadius: 4,
               background: 'linear-gradient(90deg, rgb(0,100,255), rgb(0,255,155), rgb(255,255,0), rgb(255,55,0))',
             }} />
             <span className="mono text-tertiary" style={{ fontSize: 'var(--fs-xs)' }}>{Math.round(maxSpeed)} km/h</span>
+          </div>
+        )}
+
+        {sessionMeta && (
+          <div style={{ textAlign: 'center', marginTop: '4px', flexShrink: 0 }}>
+            <span className="text-secondary mono" style={{ fontSize: 'var(--fs-xs)', opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {sessionMeta.circuit_name}
+            </span>
           </div>
         )}
       </div>
