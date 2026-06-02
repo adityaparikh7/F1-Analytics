@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { Menu, Save, Plus } from 'lucide-react';
 import { useSessionStore } from '../store/sessionStore';
 import { useUIStore } from '../store/uiStore';
 import { useLayoutStore } from '../store/layoutStore';
@@ -31,9 +32,7 @@ export const Topbar: React.FC = () => {
           }}
           title="Toggle Sidebar"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path fillRule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
-          </svg>
+          <Menu size={16} />
         </button>
         <Link to="/" className="topbar__logo">
           <div className="topbar__logo-icon" />
@@ -100,13 +99,18 @@ export const Topbar: React.FC = () => {
             const name = prompt('Layout name:', currentLayoutName);
             if (name) saveLayout(name);
           }}
+          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
         >
-          💾 Save
+          <Save size={14} /> Save
         </button>
 
         {/* Add panel */}
-        <button className="topbar__btn topbar__btn--primary" onClick={openCatalogue}>
-          + Panel
+        <button 
+          className="topbar__btn topbar__btn--primary" 
+          onClick={openCatalogue}
+          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+        >
+          <Plus size={14} /> Panel
         </button>
       </div>
     </header>

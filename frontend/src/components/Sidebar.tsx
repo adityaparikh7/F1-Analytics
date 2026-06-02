@@ -9,6 +9,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { useUIStore } from '../store/uiStore';
 import { api } from '../lib/api';
 import { formatSessionType, formatDate } from '../lib/format';
+import { CalendarSync, RefreshCw } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const { sidebarCollapsed } = useUIStore();
@@ -40,9 +41,10 @@ export const Sidebar: React.FC = () => {
         loadSessions();
         setIngesting(false);
       }, 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Ingest failed:', err);
-      alert(`Ingest failed: ${err.message || err}`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert(`Ingest failed: ${errMsg}`);
       setIngesting(false);
     }
   };
@@ -67,8 +69,9 @@ export const Sidebar: React.FC = () => {
   if (sidebarCollapsed) {
     return (
       <aside className="sidebar sidebar--collapsed">
-        <div style={{ padding: 'var(--space-3)', textAlign: 'center' }}>
-          <span style={{ fontSize: 'var(--fs-lg)' }}>🏎</span>
+        <div style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'center', alignItems: 'center' , fontSize: '20px'}}>
+          {/* <Car size={20} className="text-secondary" /> */}
+          🏎️ 
         </div>
       </aside>
     );
@@ -110,18 +113,24 @@ export const Sidebar: React.FC = () => {
             className="topbar__btn"
             onClick={handleIngestCalendar}
             title="Load calendar"
-            style={{ fontSize: 'var(--fs-sm)' }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px' }}
           >
-            📅
+            <CalendarSync size={14} />
           </button>
           <button
             className="topbar__btn"
             onClick={handleSyncSeason}
             disabled={ingesting}
             title="Sync missing sessions"
-            style={{ fontSize: 'var(--fs-sm)', opacity: ingesting ? 0.6 : 1 }}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              padding: '4px 8px', 
+              opacity: ingesting ? 0.6 : 1 
+            }}
           >
-            🔄
+            <RefreshCw size={14} className={ingesting ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
