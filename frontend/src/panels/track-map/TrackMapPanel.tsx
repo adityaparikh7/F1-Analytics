@@ -10,6 +10,29 @@ import type { PanelProps } from '../../core/panelRegistry';
 import type { TelemetryResponse, SessionMeta } from '../../lib/api';
 import { api } from '../../lib/api';
 
+// @ts-ignore
+import circuitsCsv from '../../../data/archive/circuits.csv?raw';
+
+function getRealCircuitName(location: string): string {
+  if (!location) return location;
+  const lines = circuitsCsv.split('\n');
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    // Parse CSV row ignoring commas inside quotes
+    const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+    if (cols.length > 4) {
+      // location is at index 3, name is at index 2
+      const rowLocation = cols[3].replace(/(^"|"$)/g, '').trim();
+      if (rowLocation.toLowerCase() === location.toLowerCase()) {
+        return cols[2].replace(/(^"|"$)/g, '').trim();
+      }
+    }
+  }
+  return location;
+}
+
 function speedToColour(speed: number, minSpeed: number, maxSpeed: number): string {
   const ratio = Math.max(0, Math.min(1, (speed - minSpeed) / (maxSpeed - minSpeed || 1)));
   // Blue (slow) → Green → Yellow → Red (fast)
@@ -179,7 +202,7 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
         {sessionMeta && (
           <div style={{ textAlign: 'center', marginTop: '4px', flexShrink: 0 }}>
             <span className="text-secondary mono" style={{ fontSize: 'var(--fs-xs)', opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {sessionMeta.circuit_name}
+              {getRealCircuitName(sessionMeta.circuit_name)}
             </span>
           </div>
         )}
