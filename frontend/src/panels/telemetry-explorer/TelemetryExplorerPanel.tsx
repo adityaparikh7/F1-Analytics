@@ -10,7 +10,7 @@ import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
 import type { TelemetryResponse, LapData, CornerData } from '../../lib/api';
 import { api } from '../../lib/api';
-import { getDriverColour } from '../../lib/colours';
+import { getDriverColour, adjustColorLightness, DRIVER_TEAMS } from '../../lib/colours';
 import { formatLapTime, formatSectorTime } from '../../lib/format';
 
 const CHANNELS = ['speed', 'throttle', 'brake', 'gear'] as const;
@@ -109,6 +109,29 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
     if (!tel2) return null;
     return tel2.data.reduce((max, pt) => (pt.speed || 0) > (max.speed || 0) ? pt : max, tel2.data[0]);
   }, [tel2]);
+
+  // Determine driver colors, handling same team scenario
+  const driverColours = useMemo(() => {
+    const defaultC1 = tel1 ? getDriverColour(tel1.driver, lap1?.team) : '#ff0000';
+    const defaultC2 = tel2 ? getDriverColour(tel2.driver, lap2?.team) : '#00d5ff';
+
+    if (!tel1 || !tel2) {
+      return { color1: defaultC1, color2: defaultC2 };
+    }
+
+    const team1 = lap1?.team || DRIVER_TEAMS[tel1.driver];
+    const team2 = lap2?.team || DRIVER_TEAMS[tel2.driver];
+
+    // If they belong to the same team (or resolve to the same color), adjust driver 2's color shade
+    if ((team1 && team2 && team1 === team2) || defaultC1 === defaultC2) {
+      return {
+        color1: defaultC1,
+        color2: adjustColorLightness(defaultC2, 25)
+      };
+    }
+
+    return { color1: defaultC1, color2: defaultC2 };
+  }, [tel1, tel2, lap1, lap2]);
 
   if (!sessionKey) return <div className="state-empty">Select a session to explore telemetry</div>;
 
@@ -225,8 +248,8 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
       {/* Lap Info Bar */}
       {(tel1 || tel2) && (
         <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexShrink: 0 }}>
-          {renderLapInfo(lap1, tel1, tel1 ? getDriverColour(tel1.driver) : '#888')}
-          {renderLapInfo(lap2, tel2, tel2 ? getDriverColour(tel2.driver) : '#666')}
+          {renderLapInfo(lap1, tel1, driverColours.color1)}
+          {renderLapInfo(lap2, tel2, driverColours.color2)}
         </div>
       )}
 
@@ -268,13 +291,13 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
                     <>
                       {topSpeed1 && (
                         <g>
-                          <circle cx={padL + (topSpeed1.distance! / maxDist) * plotW} cy={padT + plotH - ((topSpeed1.speed! - cfg.min) / (cfg.max - cfg.min)) * plotH} r={3} fill={getDriverColour(tel1!.driver)} />
+                          <circle cx={padL + (topSpeed1.distance! / maxDist) * plotW} cy={padT + plotH - ((topSpeed1.speed! - cfg.min) / (cfg.max - cfg.min)) * plotH} r={3} fill={driverColours.color1} />
                           <text x={padL + (topSpeed1.distance! / maxDist) * plotW} y={padT + plotH - ((topSpeed1.speed! - cfg.min) / (cfg.max - cfg.min)) * plotH - 6} fill="var(--text-primary)" fontSize={8} textAnchor="middle" fontWeight={700}>{topSpeed1.speed} km/h</text>
                         </g>
                       )}
                       {topSpeed2 && (tel2) && (
                         <g>
-                          <circle cx={padL + (topSpeed2.distance! / maxDist) * plotW} cy={padT + plotH - ((topSpeed2.speed! - cfg.min) / (cfg.max - cfg.min)) * plotH} r={3} fill={getDriverColour(tel2.driver)} />
+                          <circle cx={padL + (topSpeed2.distance! / maxDist) * plotW} cy={padT + plotH - ((topSpeed2.speed! - cfg.min) / (cfg.max - cfg.min)) * plotH} r={3} fill={driverColours.color2} />
                           <text x={padL + (topSpeed2.distance! / maxDist) * plotW} y={padT + plotH - ((topSpeed2.speed! - cfg.min) / (cfg.max - cfg.min)) * plotH + 12} fill="var(--text-primary)" fontSize={8} textAnchor="middle" fontWeight={700}>{topSpeed2.speed} km/h</text>
                         </g>
                       )}
@@ -282,8 +305,8 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
                   )}
 
                   {/* Traces */}
-                  {renderTraceForChannel(tel1, tel1 ? getDriverColour(tel1.driver) : '#888', ch)}
-                  {renderTraceForChannel(tel2, tel2 ? getDriverColour(tel2.driver) : '#666', ch)}
+                  {renderTraceForChannel(tel1, driverColours.color1, ch)}
+                  {renderTraceForChannel(tel2, driverColours.color2, ch)}
                   
                   {/* Y-axis labels (min/max) */}
                   <text x={padL - 5} y={padT + 3} fill="var(--text-tertiary)" fontSize={9} textAnchor="end" alignmentBaseline="middle">{cfg.max}</text>
@@ -313,7 +336,7 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
                 DIST: {Math.round((hoverX - padL) / plotW * maxDist)}m
               </div>
               {tel1 && hoverPt1 && (
-                <div style={{ color: getDriverColour(tel1.driver), marginBottom: '4px' }}>
+                <div style={{ color: driverColours.color1, marginBottom: '4px' }}>
                   <div style={{ fontWeight: 700 }}>{tel1.driver}</div>
                   {activeArr.map(ch => (
                     <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
@@ -324,7 +347,7 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
                 </div>
               )}
               {tel2 && hoverPt2 && (
-                <div style={{ color: getDriverColour(tel2.driver), paddingTop: '4px', borderTop: '1px solid var(--border-default)' }}>
+                <div style={{ color: driverColours.color2, paddingTop: '4px', borderTop: '1px solid var(--border-default)' }}>
                   <div style={{ fontWeight: 700 }}>{tel2.driver}</div>
                   {activeArr.map(ch => (
                     <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>

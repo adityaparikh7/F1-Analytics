@@ -5,21 +5,35 @@
  * The frontend never reads Parquet or DuckDB directly.
  */
 
+import { logger } from './logger';
+
 const API_BASE = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+  const method = options?.method || 'GET';
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error ${response.status}: ${error}`);
+  logger.debug(`API Request: ${method} ${path}`);
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`API Error ${response.status} (${method} ${path}): ${errorText}`);
+      throw new Error(`API Error ${response.status}: ${errorText}`);
+    }
+
+    return response.json();
+  } catch (err) {
+    if (err instanceof Error && !err.message.startsWith('API Error')) {
+      logger.error(`Network Error (${method} ${path}): ${err.message}`);
+    }
+    throw err;
   }
-
-  return response.json();
 }
 
 // ── Types ───────────────────────────────────────────────────────────

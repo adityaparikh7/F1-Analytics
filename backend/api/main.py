@@ -16,13 +16,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from backend.config import CORS_ORIGINS, LOG_LEVEL
 from backend.db.connection import close_connection
 from backend.db.schema import initialise_schema
+from backend.logger import setup_logging
 
 # Configure logging
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
-    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
-    datefmt="%H:%M:%S",
-)
+setup_logging(LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 
