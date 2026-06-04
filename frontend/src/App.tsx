@@ -11,6 +11,7 @@ import { GridCanvas } from './components/GridCanvas';
 import { CatalogueDrawer } from './components/CatalogueDrawer';
 import { Routes, Route } from 'react-router-dom';
 import RacePacePage from './pages/RacePacePage';
+import TelemetryPage from './pages/TelemetryPage';
 
 // ── Register all panels ─────────────────────────────────────────────
 // Each import triggers the registerPanel() call in the module
@@ -39,6 +40,7 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<GridCanvas />} />
           <Route path="/race-pace" element={<RacePacePage />} />
+          <Route path="/telemetry" element={<TelemetryPage />} />
         </Routes>
       </div>
       <CatalogueDrawer />

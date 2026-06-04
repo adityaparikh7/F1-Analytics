@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
 import type { TelemetryResponse, LapData, CornerData } from '../../lib/api';
@@ -24,6 +25,7 @@ const CHANNEL_CONFIG: Record<Channel, { label: string; unit: string; min: number
 };
 
 const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
+  const navigate = useNavigate();
   const [driver1, setDriver1] = useState('');
   const [driver2, setDriver2] = useState('');
   const [tel1, setTel1] = useState<TelemetryResponse | null>(null);
@@ -239,6 +241,14 @@ const TelemetryExplorerPanel: React.FC<PanelProps> = ({ sessionKey, width, heigh
             </button>
           ))}
         </div>
+        <button 
+          className="btn btn--outline" 
+          style={{ fontSize: 'var(--fs-xs)', padding: '2px 8px', marginLeft: 'auto' }}
+          onClick={() => navigate('/telemetry')}
+          title="Open Full Page Analysis"
+        >
+          ⤢ Expand
+        </button>
       </div>
 
       {error && <div className="state-error" style={{ minHeight: 40, fontSize: 'var(--fs-sm)', flexShrink: 0 }}>{error}</div>}
