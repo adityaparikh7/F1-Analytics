@@ -6,19 +6,23 @@ import { api } from '../lib/api';
 import type { LapData, ResultData } from '../lib/api';
 import { useSessionStore } from '../store/sessionStore';
 import { getDriverColour, getTeamColour } from '../lib/colours';
-import { formatLapTime, getPaceRating, getProperLapThreshold } from '../lib/format';
+import { formatLapTime, formatCompound, getPaceRating, getProperLapThreshold } from '../lib/format';
 
 interface DriverStat {
   driver: string;
   team: string | null;
   laps: LapData[];
   mean: number;
+  fastestLapTime: number | null;
+  fastestLapCompound: string | null;
 }
 
 interface TeamStat {
   team: string;
   laps: LapData[];
   mean: number;
+  fastestLapTime: number | null;
+  fastestLapCompound: string | null;
 }
 
 const compoundColors: Record<string, string> = {
@@ -121,14 +125,43 @@ const RacePacePage: React.FC = () => {
     const driverStats: DriverStat[] = Array.from(driverMap.entries())
       .map(([driver, { team, laps }]) => {
         const sum = laps.reduce((acc, l) => acc + (l.lap_time || 0), 0);
-        return { driver, team, laps, mean: sum / laps.length };
+        let fastestLap: LapData | null = null;
+        for (const lap of laps) {
+          if (lap.lap_time && lap.lap_time > 0) {
+            if (!fastestLap || fastestLap.lap_time === null || lap.lap_time < fastestLap.lap_time) {
+              fastestLap = lap;
+            }
+          }
+        }
+        return {
+          driver,
+          team,
+          laps,
+          mean: sum / laps.length,
+          fastestLapTime: fastestLap ? fastestLap.lap_time : null,
+          fastestLapCompound: fastestLap ? fastestLap.compound : null,
+        };
       })
       .sort((a, b) => a.mean - b.mean);
 
     const teamStats: TeamStat[] = Array.from(teamMap.entries())
       .map(([team, laps]) => {
         const sum = laps.reduce((acc, l) => acc + (l.lap_time || 0), 0);
-        return { team, laps, mean: sum / laps.length };
+        let fastestLap: LapData | null = null;
+        for (const lap of laps) {
+          if (lap.lap_time && lap.lap_time > 0) {
+            if (!fastestLap || fastestLap.lap_time === null || lap.lap_time < fastestLap.lap_time) {
+              fastestLap = lap;
+            }
+          }
+        }
+        return {
+          team,
+          laps,
+          mean: sum / laps.length,
+          fastestLapTime: fastestLap ? fastestLap.lap_time : null,
+          fastestLapCompound: fastestLap ? fastestLap.compound : null,
+        };
       })
       .sort((a, b) => a.mean - b.mean);
 
@@ -305,6 +338,8 @@ const RacePacePage: React.FC = () => {
                     <th style={{ padding: 'var(--space-2)' }}>Rank</th>
                     <th style={{ padding: 'var(--space-2)' }}>Driver</th>
                     <th style={{ padding: 'var(--space-2)' }}>Team</th>
+                    <th style={{ padding: 'var(--space-2)' }}>Fastest Lap</th>
+                    <th style={{ padding: 'var(--space-2)' }}>Tyre</th>
                     <th style={{ padding: 'var(--space-2)' }}>Mean Lap Time</th>
                     <th style={{ padding: 'var(--space-2)' }}>Delta</th>
                     <th style={{ padding: 'var(--space-2)' }}>Rating</th>
@@ -318,6 +353,26 @@ const RacePacePage: React.FC = () => {
                         <td style={{ padding: 'var(--space-2)' }}>{i + 1}</td>
                         <td style={{ padding: 'var(--space-2)', fontWeight: 600, color: getDriverColour(stat.driver, stat.team) }}>{stat.driver}</td>
                         <td style={{ padding: 'var(--space-2)' }}>{stat.team}</td>
+                        <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.fastestLapTime)}</td>
+                        <td style={{ padding: 'var(--space-2)' }}>
+                          {stat.fastestLapCompound ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '50%',
+                              backgroundColor: compoundColors[stat.fastestLapCompound.toUpperCase()] || '#888888',
+                              color: ['HARD', 'MEDIUM'].includes(stat.fastestLapCompound.toUpperCase()) ? '#000000' : '#ffffff',
+                              fontSize: '10px',
+                              fontWeight: 'bold',
+                              border: '1px solid rgba(255,255,255,0.2)'
+                            }} title={stat.fastestLapCompound}>
+                              {formatCompound(stat.fastestLapCompound)}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.mean)}</td>
                         <td style={{ padding: 'var(--space-2)' }}>{i === 0 ? 'Best' : `+${delta.toFixed(3)}s`}</td>
                         <td style={{ padding: 'var(--space-2)' }}>
@@ -357,6 +412,8 @@ const RacePacePage: React.FC = () => {
                     <th style={{ padding: 'var(--space-2)' }}>Rank</th>
                     <th style={{ padding: 'var(--space-2)' }}>Team</th>
                     <th style={{ padding: 'var(--space-2)' }}>Mean Lap Time</th>
+                    <th style={{ padding: 'var(--space-2)' }}>Fastest Lap</th>
+                    <th style={{ padding: 'var(--space-2)' }}>Tyre</th>
                     <th style={{ padding: 'var(--space-2)' }}>Delta</th>
                     <th style={{ padding: 'var(--space-2)' }}>Rating</th>
                   </tr>
@@ -369,6 +426,26 @@ const RacePacePage: React.FC = () => {
                         <td style={{ padding: 'var(--space-2)' }}>{i + 1}</td>
                         <td style={{ padding: 'var(--space-2)', fontWeight: 600, color: getTeamColour(stat.team) }}>{stat.team}</td>
                         <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.mean)}</td>
+                        <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.fastestLapTime)}</td>
+                        <td style={{ padding: 'var(--space-2)' }}>
+                          {stat.fastestLapCompound ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '50%',
+                              backgroundColor: compoundColors[stat.fastestLapCompound.toUpperCase()] || '#888888',
+                              color: ['HARD', 'MEDIUM'].includes(stat.fastestLapCompound.toUpperCase()) ? '#000000' : '#ffffff',
+                              fontSize: '10px',
+                              fontWeight: 'bold',
+                              border: '1px solid rgba(255,255,255,0.2)'
+                            }} title={stat.fastestLapCompound}>
+                              {formatCompound(stat.fastestLapCompound)}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td style={{ padding: 'var(--space-2)' }}>{i === 0 ? 'Best' : `+${delta.toFixed(3)}s`}</td>
                         <td style={{ padding: 'var(--space-2)' }}>
                           <span style={{ 

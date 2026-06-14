@@ -106,6 +106,7 @@ export interface ResultData {
 
 export interface TelemetryPoint {
   distance: number | null;
+  time: number | null;
   speed: number | null;
   throttle: number | null;
   brake: number | null;

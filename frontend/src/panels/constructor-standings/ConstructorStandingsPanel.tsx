@@ -32,6 +32,7 @@ const ConstructorStandingsPanel: React.FC<PanelProps> = () => {
       <div className="state-loading">
         <div className="skeleton skeleton--bar" />
         <div className="skeleton skeleton--bar" />
+        <div className="skeleton skeleton--bar" />
       </div>
     );
   }
@@ -79,9 +80,9 @@ const ConstructorStandingsPanel: React.FC<PanelProps> = () => {
 
             {/* Colour block */}
             <span style={{
-              width: 4,
-              height: 24,
-              borderRadius: 2,
+              width: 3,
+              height: 20,
+              borderRadius: 1,
               background: colour,
               flexShrink: 0,
             }} />
@@ -108,11 +109,22 @@ const ConstructorStandingsPanel: React.FC<PanelProps> = () => {
                 }} />
               </div>
             </div>
-
+            {/* Wins */}
+            {s.wins > 0 && (
+              <span style={{
+                fontSize: 'var(--fs-xs)',
+                color: 'var(--accent-amber)',
+                fontFamily: 'var(--font-mono)',
+                minWidth: 24,
+                textAlign: 'right',
+              }}>
+                {s.wins}W
+              </span>
+            )}
             {/* Points */}
             <span className="mono" style={{
               fontWeight: 600,
-              fontSize: 'var(--fs-base)',
+              fontSize: 'var(--fs-sm)',
               minWidth: 48,
               textAlign: 'right',
             }}>

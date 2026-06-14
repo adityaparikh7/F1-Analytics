@@ -6,10 +6,11 @@ import { api } from '../lib/api';
 import { getDriverColour, adjustColorLightness, DRIVER_TEAMS } from '../lib/colours';
 import { formatLapTime, formatSectorTime } from '../lib/format';
 
-const CHANNELS = ['speed', 'throttle', 'brake', 'gear'] as const;
+const CHANNELS = ['delta', 'speed', 'throttle', 'brake', 'gear'] as const;
 type Channel = typeof CHANNELS[number];
 
 const CHANNEL_CONFIG: Record<Channel, { label: string; unit: string; min: number; max: number; colour: string }> = {
+  delta: { label: 'Time Delta', unit: 's', min: -1.0, max: 1.0, colour: 'var(--text-primary)' },
   speed: { label: 'Speed', unit: 'km/h', min: 0, max: 370, colour: 'var(--text-primary)' },
   throttle: { label: 'Throttle', unit: '%', min: 0, max: 100, colour: 'var(--accent-teal)' },
   brake: { label: 'Brake', unit: '%', min: 0, max: 1, colour: 'var(--accent-red)' },
@@ -44,7 +45,7 @@ const TelemetryPage: React.FC = () => {
   const [tel1, setTel1] = useState<TelemetryResponse | null>(null);
   const [tel2, setTel2] = useState<TelemetryResponse | null>(null);
 
-  const [activeChannels, setActiveChannels] = useState<Set<Channel>>(new Set(['speed', 'throttle', 'brake', 'gear']));
+  const [activeChannels, setActiveChannels] = useState<Set<Channel>>(new Set(['delta', 'speed', 'throttle', 'brake', 'gear']));
   
   const [loadingLaps, setLoadingLaps] = useState(false);
   const [loadingTel, setLoadingTel] = useState(false);
@@ -168,6 +169,40 @@ const TelemetryPage: React.FC = () => {
     return m;
   }, [tel1, tel2]);
 
+  const deltaTrace = useMemo(() => {
+    if (!tel1 || !tel2 || !tel1.data.length || !tel2.data.length) return null;
+    
+    const d1 = tel1.data.filter(d => d.distance != null && d.time != null);
+    const d2 = tel2.data.filter(d => d.distance != null && d.time != null);
+    if (!d1.length || !d2.length) return null;
+
+    const interpolateTime = (x: number) => {
+      let rightIdx = d2.findIndex(d => d.distance! >= x);
+      if (rightIdx === -1) return d2[d2.length - 1].time!;
+      if (rightIdx === 0) return d2[0].time!;
+      const left = d2[rightIdx - 1];
+      const right = d2[rightIdx];
+      const dx = right.distance! - left.distance!;
+      if (dx === 0) return left.time!;
+      const ratio = (x - left.distance!) / dx;
+      return left.time! + ratio * (right.time! - left.time!);
+    };
+
+    let minDelta = 0;
+    let maxDelta = 0;
+
+    const points = d1.map(p1 => {
+      const t2 = interpolateTime(p1.distance!);
+      const dt = t2 - p1.time!;
+      if (dt < minDelta) minDelta = dt;
+      if (dt > maxDelta) maxDelta = dt;
+      return { distance: p1.distance!, delta: dt };
+    });
+
+    const range = Math.max(Math.abs(minDelta), Math.abs(maxDelta), 0.5) * 1.2;
+    return { points, min: -range, max: range };
+  }, [tel1, tel2]);
+
   if (!activeSessionKey) {
     return (
       <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -203,6 +238,21 @@ const TelemetryPage: React.FC = () => {
   const hoverPt1 = hoverX !== null ? findClosest(tel1, hoverX) : null;
   const hoverPt2 = hoverX !== null ? findClosest(tel2, hoverX) : null;
 
+  const hoverDelta = useMemo(() => {
+    if (!deltaTrace || hoverX === null) return null;
+    const targetDist = ((hoverX - padL) / plotW) * maxDist;
+    let closest = deltaTrace.points[0];
+    let minDiff = Math.abs((closest.distance || 0) - targetDist);
+    for (const pt of deltaTrace.points) {
+      const diff = Math.abs((pt.distance || 0) - targetDist);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = pt;
+      }
+    }
+    return closest;
+  }, [deltaTrace, hoverX, padL, plotW, maxDist]);
+
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -212,6 +262,7 @@ const TelemetryPage: React.FC = () => {
   };
 
   const renderTraceForChannel = (tel: TelemetryResponse | null, colour: string, ch: Channel) => {
+    if (ch === 'delta') return null;
     if (!tel || tel.data.length === 0) return null;
     const cfg = CHANNEL_CONFIG[ch];
     const points = tel.data
@@ -369,12 +420,32 @@ const TelemetryPage: React.FC = () => {
                 })}
 
                 {/* Traces */}
-                {renderTraceForChannel(tel1, driverColours.color1, ch)}
-                {renderTraceForChannel(tel2, driverColours.color2, ch)}
+                {ch === 'delta' && deltaTrace ? (
+                  <g>
+                    <line x1={padL} y1={padT + plotH - ((0 - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} x2={padL + plotW} y2={padT + plotH - ((0 - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} stroke="var(--text-tertiary)" strokeDasharray="2,2" />
+                    <polyline
+                      points={deltaTrace.points.map(p => {
+                        const x = padL + ((p.distance / maxDist) * plotW);
+                        const val = Math.min(Math.max(p.delta, deltaTrace.min), deltaTrace.max);
+                        const y = padT + plotH - ((val - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH;
+                        return `${x},${y}`;
+                      }).join(' ')}
+                      fill="none"
+                      stroke="var(--text-primary)"
+                      strokeWidth={1.5}
+                      opacity={0.85}
+                    />
+                  </g>
+                ) : (
+                  <g>
+                    {renderTraceForChannel(tel1, driverColours.color1, ch)}
+                    {renderTraceForChannel(tel2, driverColours.color2, ch)}
+                  </g>
+                )}
                 
                 {/* Y-axis labels */}
-                <text x={padL - 8} y={padT + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{cfg.max}</text>
-                <text x={padL - 8} y={padT + plotH + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{cfg.min}</text>
+                <text x={padL - 8} y={padT + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.max.toFixed(2) : cfg.max}</text>
+                <text x={padL - 8} y={padT + plotH + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.min.toFixed(2) : cfg.min}</text>
 
                 {/* Hover Crosshair */}
                 {hoverX !== null && (
@@ -404,7 +475,7 @@ const TelemetryPage: React.FC = () => {
             {tel1 && hoverPt1 && (
               <div style={{ color: driverColours.color1, marginBottom: tel2 ? '8px' : '0' }}>
                 <div style={{ fontWeight: 700, marginBottom: '4px' }}>{tel1.driver} (L{activeLap1?.lap_number})</div>
-                {activeArr.map(ch => (
+                {activeArr.filter(c => c !== 'delta').map(ch => (
                   <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{ch.toUpperCase()}:</span>
                     <span>{hoverPt1[ch]}{CHANNEL_CONFIG[ch].unit}</span>
@@ -415,12 +486,23 @@ const TelemetryPage: React.FC = () => {
             {tel2 && hoverPt2 && (
               <div style={{ color: driverColours.color2, paddingTop: '8px', borderTop: tel1 ? '1px solid var(--border-default)' : 'none' }}>
                 <div style={{ fontWeight: 700, marginBottom: '4px' }}>{tel2.driver} (L{activeLap2?.lap_number})</div>
-                {activeArr.map(ch => (
+                {activeArr.filter(c => c !== 'delta').map(ch => (
                   <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{ch.toUpperCase()}:</span>
                     <span>{hoverPt2[ch]}{CHANNEL_CONFIG[ch].unit}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {deltaTrace && activeArr.includes('delta') && hoverDelta && (
+              <div style={{ color: 'var(--text-primary)', paddingTop: '8px', borderTop: tel1 ? '1px solid var(--border-default)' : 'none' }}>
+                <div style={{ fontWeight: 700, marginBottom: '4px' }}>Time Delta (T2 - T1)</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <span>DELTA:</span>
+                  <span style={{ color: hoverDelta.delta > 0 ? 'var(--accent-red)' : 'var(--accent-teal)', fontWeight: 600 }}>
+                    {hoverDelta.delta > 0 ? '+' : ''}{hoverDelta.delta.toFixed(3)}s
+                  </span>
+                </div>
               </div>
             )}
           </div>

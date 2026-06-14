@@ -79,7 +79,7 @@ const SeasonCalendarPanel: React.FC<PanelProps> = () => {
       <table className="data-table">
         <thead>
           <tr>
-            <th style={{ paddingLeft: '12px' }}>Rd</th>
+            <th style={{ paddingLeft: '12px' }}>Round</th>
             <th>Event</th>
             <th>Circuit</th>
             {/* <th>Country</th> */}
@@ -105,6 +105,7 @@ const SeasonCalendarPanel: React.FC<PanelProps> = () => {
                       ? 'rgba(255, 255, 255, 0.01)' 
                       : 'transparent',
                   transition: 'background 0.2s ease',
+                  animation: isNext ? 'next-pulse-glow 2s infinite' : 'none',
                 }}
               >
                 <td style={{ 
@@ -128,7 +129,7 @@ const SeasonCalendarPanel: React.FC<PanelProps> = () => {
                     fontSize: 'var(--fs-xs)',
                     fontFamily: 'var(--font-mono)',
                     fontWeight: 600,
-                    animation: isNext ? 'next-pulse-glow 2s infinite' : 'none',
+                    // animation: isNext ? 'next-pulse-glow 2s infinite' : 'none',
                   }}>
                     {ev.round_number}
                   </span>

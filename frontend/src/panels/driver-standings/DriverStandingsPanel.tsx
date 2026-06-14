@@ -61,7 +61,7 @@ const DriverStandingsPanel: React.FC<PanelProps> = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '4px 0',
+              padding: '6px 0',
               borderBottom: '1px solid var(--border-default)',
             }}
           >
@@ -122,7 +122,7 @@ const DriverStandingsPanel: React.FC<PanelProps> = () => {
               </span>
             )}
             {/* Points */}
-            <span className="mono" style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', minWidth: 40, textAlign: 'right' }}>
+            <span className="mono" style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', minWidth: 48, textAlign: 'right' }}>
               {formatPoints(s.points)}
             </span>
 

@@ -413,6 +413,7 @@ def fetch_telemetry(
 
     df = pd.DataFrame({
         "distance": telemetry["Distance"].values if "Distance" in telemetry.columns else None,
+        "time": (telemetry["Time"] - telemetry["Time"].iloc[0]).dt.total_seconds().values if "Time" in telemetry.columns else None,
         "speed": telemetry["Speed"].values if "Speed" in telemetry.columns else None,
         "throttle": telemetry["Throttle"].values if "Throttle" in telemetry.columns else None,
         "brake": telemetry["Brake"].values if "Brake" in telemetry.columns else None,
