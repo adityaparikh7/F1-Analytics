@@ -342,6 +342,15 @@ input:focus, select:focus {
   color: var(--text-primary);
 }
 
+.sidebar__item:hover .sidebar__reingest-btn {
+  opacity: 1 !important;
+}
+
+.sidebar__reingest-btn:hover {
+  color: var(--accent) !important;
+  background: var(--bg-active);
+}
+
 /* ── Grid Canvas ───────────────────────────────────────────────────── */
 .grid-canvas {
   flex: 1;

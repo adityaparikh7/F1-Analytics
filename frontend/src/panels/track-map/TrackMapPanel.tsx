@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
-import type { TelemetryResponse, SessionMeta } from '../../lib/api';
+import type { TelemetryResponse, SessionMeta, CornerData } from '../../lib/api';
 import { api } from '../../lib/api';
 
 // @ts-ignore
@@ -52,6 +52,8 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
   const [driver, setDriver] = useState('');
   const [tel, setTel] = useState<TelemetryResponse | null>(null);
   const [sessionMeta, setSessionMeta] = useState<SessionMeta | null>(null);
+  const [corners, setCorners] = useState<CornerData[]>([]);
+  const [showCorners, setShowCorners] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,13 +66,18 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
       setLoading(true);
       setError(null);
       try {
-        const [meta, laps] = await Promise.all([
+        const [meta, laps, cornersData] = await Promise.all([
           api.getSession(sessionKey),
-          api.getLaps(sessionKey)
+          api.getLaps(sessionKey),
+          api.getCircuitInfo(sessionKey).catch(err => {
+            console.error('Failed to load circuit corners:', err);
+            return [] as CornerData[];
+          })
         ]);
 
         if (!isMounted) return;
         setSessionMeta(meta);
+        setCorners(cornersData);
 
         const validLaps = laps.filter(l => l.lap_time != null);
         if (validLaps.length === 0) {
@@ -117,7 +124,7 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
 
   const svgWidth = Math.max(width - 20, 200);
   const svgHeight = Math.max(height - 120, 200);
-  const pad = 20;
+  const pad = 30;
 
   const points = tel?.data.filter(d => d.x != null && d.y != null) || [];
   const xs = points.map(d => d.x!);
@@ -159,6 +166,20 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
           {loading ? '...' : 'Load'}
         </button>
         {tel && <span className="text-secondary mono" style={{ fontSize: 'var(--fs-xs)' }}>{tel.driver} — {tel.sample_count} pts</span>}
+
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: '4px',
+          marginLeft: 'auto', cursor: 'pointer', userSelect: 'none',
+          fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)',
+        }}>
+          <input
+            type="checkbox"
+            checked={showCorners}
+            onChange={e => setShowCorners(e.target.checked)}
+            style={{ accentColor: 'var(--accent-teal)' }}
+          />
+          Corners
+        </label>
       </div>
 
       {error && <div className="state-error" style={{ minHeight: 40, fontSize: 'var(--fs-sm)' }}>{error}</div>}
@@ -184,6 +205,84 @@ const TrackMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
             {points.length > 0 && (
               <circle cx={mapX(points[0].x!)} cy={mapY(points[0].y!)} r={5} fill="var(--accent-red)" stroke="white" strokeWidth={1} />
             )}
+
+            {/* Corner Markers */}
+            {showCorners && corners.map((corner, idx) => {
+              // Get raw coordinate
+              let cx_raw = corner.x;
+              let cy_raw = corner.y;
+
+              // Fallback: match by distance
+              if (cx_raw == null || cy_raw == null) {
+                if (points.length === 0 || corner.distance == null) return null;
+                let closest = points[0];
+                let minDiff = Math.abs((closest.distance || 0) - corner.distance);
+                for (let i = 1; i < points.length; i++) {
+                  const p = points[i];
+                  const diff = Math.abs((p.distance || 0) - corner.distance);
+                  if (diff < minDiff) {
+                    minDiff = diff;
+                    closest = p;
+                  }
+                }
+                if (closest.x == null || closest.y == null) return null;
+                cx_raw = closest.x;
+                cy_raw = closest.y;
+              }
+
+              const cx = mapX(cx_raw);
+              const cy = mapY(cy_raw);
+
+              const angleDeg = corner.angle ?? 0;
+              const angleRad = (angleDeg * Math.PI) / 180;
+              const labelOffset = 22; // pixels offset from track
+              
+              const labelX = cx + labelOffset * Math.cos(angleRad);
+              const labelY = cy - labelOffset * Math.sin(angleRad);
+
+              const text = `${corner.number}${corner.letter || ''}`;
+              const isLong = text.length > 2;
+              const r = isLong ? 10.5 : 8.5;
+
+              return (
+                <g key={`corner-${idx}`}>
+                  {/* Connector Line */}
+                  <line 
+                    x1={cx} 
+                    y1={cy} 
+                    x2={labelX} 
+                    y2={labelY} 
+                    stroke="rgba(255, 255, 255, 0.35)" 
+                    strokeWidth={1} 
+                    strokeDasharray="2,2" 
+                  />
+                  {/* Track point dot */}
+                  <circle cx={cx} cy={cy} r={2} fill="white" opacity={0.8} />
+                  {/* Corner Bubble */}
+                  <circle 
+                    cx={labelX} 
+                    cy={labelY} 
+                    r={r} 
+                    fill="var(--surface-primary, #1e1e24)" 
+                    stroke="rgba(255, 255, 255, 0.45)" 
+                    strokeWidth={1} 
+                  />
+                  {/* Corner Text */}
+                  <text 
+                    x={labelX} 
+                    y={labelY} 
+                    textAnchor="middle" 
+                    dominantBaseline="central" 
+                    fill="var(--text-primary, #ffffff)" 
+                    fontSize="9px" 
+                    fontWeight="bold"
+                    style={{ userSelect: 'none' }}
+                  >
+                    {text}
+                  </text>
+                </g>
+              );
+            })}
           </svg>
         )}
 

@@ -142,6 +142,8 @@ export interface CornerData {
   letter: string | null;
   angle: number | null;
   distance: number | null;
+  x: number | null;
+  y: number | null;
 }
 
 export interface DriverStanding {

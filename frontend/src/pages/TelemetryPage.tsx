@@ -6,7 +6,7 @@ import { api } from '../lib/api';
 import { getDriverColour, adjustColorLightness, DRIVER_TEAMS } from '../lib/colours';
 import { formatLapTime, formatSectorTime } from '../lib/format';
 
-const CHANNELS = ['delta', 'speed', 'throttle', 'brake', 'gear'] as const;
+const CHANNELS = ['track-map', 'delta', 'speed', 'throttle', 'brake', 'gear'] as const;
 type Channel = typeof CHANNELS[number];
 
 const CHANNEL_CONFIG: Record<Channel, { label: string; unit: string; min: number; max: number; colour: string }> = {
@@ -15,6 +15,7 @@ const CHANNEL_CONFIG: Record<Channel, { label: string; unit: string; min: number
   throttle: { label: 'Throttle', unit: '%', min: 0, max: 100, colour: 'var(--accent-teal)' },
   brake: { label: 'Brake', unit: '%', min: 0, max: 1, colour: 'var(--accent-red)' },
   gear: { label: 'Gear', unit: '', min: 0, max: 8, colour: 'var(--accent-amber)' },
+  'track-map': { label: 'Track Dominance', unit: '', min: 0, max: 0, colour: 'var(--text-primary)' },
 };
 
 const getCompoundShort = (compound: string | null) => {
@@ -45,13 +46,14 @@ const TelemetryPage: React.FC = () => {
   const [tel1, setTel1] = useState<TelemetryResponse | null>(null);
   const [tel2, setTel2] = useState<TelemetryResponse | null>(null);
 
-  const [activeChannels, setActiveChannels] = useState<Set<Channel>>(new Set(['delta', 'speed', 'throttle', 'brake', 'gear']));
+  const [activeChannels, setActiveChannels] = useState<Set<Channel>>(new Set(['track-map', 'delta', 'speed', 'throttle', 'brake', 'gear']));
   
   const [loadingLaps, setLoadingLaps] = useState(false);
   const [loadingTel, setLoadingTel] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const [hoverY, setHoverY] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
@@ -203,6 +205,43 @@ const TelemetryPage: React.FC = () => {
     return { points, min: -range, max: range };
   }, [tel1, tel2]);
 
+  const minisectorData = useMemo(() => {
+    if (!tel1 || !tel2) return null;
+    const num_minisectors = 25;
+    const ms_len = maxDist / num_minisectors;
+    
+    const getMeans = (tel: TelemetryResponse) => {
+      const sums = new Array(num_minisectors + 1).fill(0);
+      const counts = new Array(num_minisectors + 1).fill(0);
+      tel.data.forEach(p => {
+        if (p.distance == null || p.speed == null) return;
+        const ms = Math.floor(p.distance / ms_len) + 1;
+        if (ms >= 0 && ms <= num_minisectors) {
+          sums[ms] += p.speed;
+          counts[ms]++;
+        }
+      });
+      return sums.map((s, i) => counts[i] > 0 ? s / counts[i] : 0);
+    };
+    
+    const means1 = getMeans(tel1);
+    const means2 = getMeans(tel2);
+    
+    const fastest = means1.map((s1, i) => s1 >= means2[i] ? 1 : 2);
+    
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    tel1.data.forEach(p => {
+      if (p.x != null && p.y != null) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    });
+
+    return { ms_len, fastest, minX, maxX, minY, maxY, basePoints: tel1.data };
+  }, [tel1, tel2, maxDist]);
+
   if (!activeSessionKey) {
     return (
       <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -216,9 +255,8 @@ const TelemetryPage: React.FC = () => {
   const activeArr = Array.from(activeChannels);
   const padL = 50, padR = 10, padT = 15, padB = 20;
   
-  const svgH = Math.max(100, Math.floor((dimensions.height) / activeArr.length));
+  const baseSvgH = Math.max(200, Math.floor((dimensions.height) / activeArr.length));
   const plotW = chartW - padL - padR;
-  const plotH = svgH - padT - padB;
 
   const findClosest = (tel: TelemetryResponse | null, x: number) => {
     if (!tel || !tel.data.length || x < padL || x > padL + plotW) return null;
@@ -257,19 +295,25 @@ const TelemetryPage: React.FC = () => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    if (x >= padL && x <= padL + plotW) setHoverX(x);
-    else setHoverX(null);
+    const y = e.clientY - rect.top + containerRef.current.scrollTop;
+    if (x >= padL && x <= padL + plotW) {
+      setHoverX(x);
+      setHoverY(y);
+    } else {
+      setHoverX(null);
+      setHoverY(null);
+    }
   };
 
-  const renderTraceForChannel = (tel: TelemetryResponse | null, colour: string, ch: Channel) => {
+  const renderTraceForChannel = (tel: TelemetryResponse | null, colour: string, ch: Channel, plotH: number) => {
     if (ch === 'delta') return null;
     if (!tel || tel.data.length === 0) return null;
     const cfg = CHANNEL_CONFIG[ch];
     const points = tel.data
-      .filter(d => d.distance != null && d[ch] != null)
+      .filter(d => d.distance != null && (d as any)[ch] != null)
       .map(d => {
         const x = padL + ((d.distance! / maxDist) * plotW);
-        const val = Math.min(Math.max(d[ch] as number, cfg.min), cfg.max);
+        const val = Math.min(Math.max((d as any)[ch] as number, cfg.min), cfg.max);
         const y = padT + plotH - ((val - cfg.min) / (cfg.max - cfg.min)) * plotH;
         return `${x},${y}`;
       });
@@ -390,25 +434,28 @@ const TelemetryPage: React.FC = () => {
       {/* Charts */}
       <div 
         ref={containerRef}
-        style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--surface-primary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}
+        style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--surface-primary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', overflowY: 'auto', overflowX: 'hidden' }}
         onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoverX(null)}
+        onMouseLeave={() => { setHoverX(null); setHoverY(null); }}
       >
         {(tel1 || tel2) ? activeArr.map(ch => {
           const cfg = CHANNEL_CONFIG[ch];
+          const chHeight = ch === 'track-map' ? Math.max(400, baseSvgH * 1.8) : baseSvgH;
+          const plotH = chHeight - padT - padB;
+
           return (
-            <div key={ch} style={{ position: 'relative', height: svgH }}>
+            <div key={ch} style={{ position: 'relative', height: chHeight }}>
               <div style={{ position: 'absolute', top: 5, left: padL + 5, fontSize: 11, fontWeight: 600, color: cfg.colour }}>
                 {cfg.label} <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>({cfg.unit})</span>
               </div>
-              <svg width={chartW} height={svgH} style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+              <svg width={chartW} height={chHeight} style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>
                 {/* Grid */}
                 {Array.from({ length: 5 }, (_, i) => padT + (plotH * i) / 4).map((y, i) => (
                   <line key={i} x1={padL} y1={y} x2={padL + plotW} y2={y} stroke="var(--border-default)" strokeDasharray="4,4" />
                 ))}
                 
                 {/* Corner Markers */}
-                {circuit.map(corner => {
+                {ch !== 'track-map' && circuit.map(corner => {
                   if (!corner.distance || corner.distance > maxDist) return null;
                   const cx = padL + (corner.distance / maxDist) * plotW;
                   return (
@@ -420,7 +467,68 @@ const TelemetryPage: React.FC = () => {
                 })}
 
                 {/* Traces */}
-                {ch === 'delta' && deltaTrace ? (
+                {ch === 'track-map' && minisectorData ? (
+                  <g>
+                    {minisectorData.basePoints.map((p, i, arr) => {
+                      if (i === 0) return null;
+                      const prev = arr[i - 1];
+                      if (p.x == null || p.y == null || prev.x == null || prev.y == null) return null;
+                      
+                      const ms = Math.floor((p.distance || 0) / minisectorData.ms_len) + 1;
+                      const fastestDriver = minisectorData.fastest[ms] || 1;
+                      const color = fastestDriver === 1 ? driverColours.color1 : driverColours.color2;
+                      
+                      const rangeX = minisectorData.maxX - minisectorData.minX;
+                      const rangeY = minisectorData.maxY - minisectorData.minY;
+                      const scale = Math.min(plotW / (rangeX || 1), plotH / (rangeY || 1)) * 0.9;
+                      
+                      const cx = padL + plotW/2;
+                      const cy = padT + plotH/2;
+                      
+                      const mapX = (x: number) => cx + (x - (minisectorData.minX + rangeX/2)) * scale;
+                      const mapY = (y: number) => cy - (y - (minisectorData.minY + rangeY/2)) * scale;
+                      
+                      return (
+                        <line
+                          key={`tm-${i}`}
+                          x1={mapX(prev.x)}
+                          y1={mapY(prev.y)}
+                          x2={mapX(p.x)}
+                          y2={mapY(p.y)}
+                          stroke={color}
+                          strokeWidth={4}
+                          strokeLinecap="round"
+                        />
+                      );
+                    })}
+                    <g transform={`translate(${padL + 10}, ${padT + plotH - 10})`}>
+                      <circle cx={0} cy={0} r={4} fill={driverColours.color1} />
+                      <text x={8} y={3} fontSize={10} fill="var(--text-secondary)">{tel1?.driver} Faster</text>
+                      
+                      <circle cx={100} cy={0} r={4} fill={driverColours.color2} />
+                      <text x={108} y={3} fontSize={10} fill="var(--text-secondary)">{tel2?.driver} Faster</text>
+                    </g>
+                    {(() => {
+                      const rangeX = minisectorData.maxX - minisectorData.minX;
+                      const rangeY = minisectorData.maxY - minisectorData.minY;
+                      const scale = Math.min(plotW / (rangeX || 1), plotH / (rangeY || 1)) * 0.9;
+                      const cx = padL + plotW/2;
+                      const cy = padT + plotH/2;
+                      const mapX = (x: number) => cx + (x - (minisectorData.minX + rangeX/2)) * scale;
+                      const mapY = (y: number) => cy - (y - (minisectorData.minY + rangeY/2)) * scale;
+                      return (
+                        <g>
+                          {hoverPt1?.x != null && hoverPt1?.y != null && (
+                            <circle cx={mapX(hoverPt1.x)} cy={mapY(hoverPt1.y)} r={6} fill={driverColours.color1} stroke="var(--surface-primary)" strokeWidth={2} />
+                          )}
+                          {hoverPt2?.x != null && hoverPt2?.y != null && (
+                            <circle cx={mapX(hoverPt2.x)} cy={mapY(hoverPt2.y)} r={6} fill={driverColours.color2} stroke="var(--surface-primary)" strokeWidth={2} />
+                          )}
+                        </g>
+                      );
+                    })()}
+                  </g>
+                ) : ch === 'delta' && deltaTrace ? (
                   <g>
                     <line x1={padL} y1={padT + plotH - ((0 - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} x2={padL + plotW} y2={padT + plotH - ((0 - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} stroke="var(--text-tertiary)" strokeDasharray="2,2" />
                     <polyline
@@ -438,17 +546,22 @@ const TelemetryPage: React.FC = () => {
                   </g>
                 ) : (
                   <g>
-                    {renderTraceForChannel(tel1, driverColours.color1, ch)}
-                    {renderTraceForChannel(tel2, driverColours.color2, ch)}
+                    {renderTraceForChannel(tel1, driverColours.color1, ch, plotH)}
+                    {renderTraceForChannel(tel2, driverColours.color2, ch, plotH)}
                   </g>
                 )}
                 
                 {/* Y-axis labels */}
-                <text x={padL - 8} y={padT + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.max.toFixed(2) : cfg.max}</text>
-                <text x={padL - 8} y={padT + plotH + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.min.toFixed(2) : cfg.min}</text>
+                {/* Y-axis labels */}
+                {ch !== 'track-map' && (
+                  <g>
+                    <text x={padL - 8} y={padT + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.max.toFixed(2) : cfg.max}</text>
+                    <text x={padL - 8} y={padT + plotH + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.min.toFixed(2) : cfg.min}</text>
+                  </g>
+                )}
 
                 {/* Hover Crosshair */}
-                {hoverX !== null && (
+                {hoverX !== null && ch !== 'track-map' && (
                   <line x1={hoverX} y1={padT} x2={hoverX} y2={padT + plotH} stroke="var(--accent-teal)" strokeWidth={1} opacity={0.5} />
                 )}
               </svg>
@@ -459,11 +572,11 @@ const TelemetryPage: React.FC = () => {
         )}
 
         {/* Hover Tooltip */}
-        {hoverX !== null && (tel1 || tel2) && (
+        {hoverX !== null && hoverY !== null && (tel1 || tel2) && (
           <div style={{
             position: 'absolute', 
             left: hoverX + 15 > chartW - 150 ? hoverX - 160 : hoverX + 15, 
-            top: 20,
+            top: hoverY + 15 > (containerRef.current?.scrollHeight || dimensions.height) - 150 ? hoverY - 200 : hoverY + 15,
             background: 'var(--bg-elevated)', border: '1px solid var(--border-emphasis)',
             borderRadius: '6px', padding: '10px', fontSize: '11px', pointerEvents: 'none',
             zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', minWidth: '120px',
@@ -475,10 +588,10 @@ const TelemetryPage: React.FC = () => {
             {tel1 && hoverPt1 && (
               <div style={{ color: driverColours.color1, marginBottom: tel2 ? '8px' : '0' }}>
                 <div style={{ fontWeight: 700, marginBottom: '4px' }}>{tel1.driver} (L{activeLap1?.lap_number})</div>
-                {activeArr.filter(c => c !== 'delta').map(ch => (
+                {activeArr.filter(c => c !== 'delta' && c !== 'track-map').map(ch => (
                   <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{ch.toUpperCase()}:</span>
-                    <span>{hoverPt1[ch]}{CHANNEL_CONFIG[ch].unit}</span>
+                    <span>{(hoverPt1 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
                   </div>
                 ))}
               </div>
@@ -486,10 +599,10 @@ const TelemetryPage: React.FC = () => {
             {tel2 && hoverPt2 && (
               <div style={{ color: driverColours.color2, paddingTop: '8px', borderTop: tel1 ? '1px solid var(--border-default)' : 'none' }}>
                 <div style={{ fontWeight: 700, marginBottom: '4px' }}>{tel2.driver} (L{activeLap2?.lap_number})</div>
-                {activeArr.filter(c => c !== 'delta').map(ch => (
+                {activeArr.filter(c => c !== 'delta' && c !== 'track-map').map(ch => (
                   <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{ch.toUpperCase()}:</span>
-                    <span>{hoverPt2[ch]}{CHANNEL_CONFIG[ch].unit}</span>
+                    <span>{(hoverPt2 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
                   </div>
                 ))}
               </div>

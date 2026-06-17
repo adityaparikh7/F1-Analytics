@@ -9,7 +9,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { useUIStore } from '../store/uiStore';
 import { api } from '../lib/api';
 import { formatSessionType, formatDate } from '../lib/format';
-import { CalendarSync, RefreshCw } from 'lucide-react';
+import { CalendarSync, RefreshCw, RotateCcw } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const { sidebarCollapsed } = useUIStore();
@@ -26,6 +26,7 @@ export const Sidebar: React.FC = () => {
   const [ingesting, setIngesting] = useState(false);
   const [ingestEvent, setIngestEvent] = useState('');
   const [ingestType, setIngestType] = useState('R');
+  const [reingestingKey, setReingestingKey] = useState<string | null>(null);
 
   useEffect(() => {
     loadSessions();
@@ -46,6 +47,24 @@ export const Sidebar: React.FC = () => {
       const errMsg = err instanceof Error ? err.message : String(err);
       alert(`Ingest failed: ${errMsg}`);
       setIngesting(false);
+    }
+  };
+
+  const handleReingest = async (e: React.MouseEvent, session: { session_key: string; year: number; round_number: number; session_type: string; event_name: string }) => {
+    e.stopPropagation(); // Prevent session selection
+    setReingestingKey(session.session_key);
+    try {
+      await api.ingestSession(session.year, session.session_type, session.round_number);
+      // Reload sessions after a short delay to allow background task to complete
+      setTimeout(() => {
+        loadSessions();
+        setReingestingKey(null);
+      }, 3000);
+    } catch (err: unknown) {
+      console.error('Reingest failed:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert(`Reingest failed for ${session.event_name}: ${errMsg}`);
+      setReingestingKey(null);
     }
   };
 
@@ -147,20 +166,44 @@ export const Sidebar: React.FC = () => {
             <br />Use the form above to load a session.
           </div>
         )}
-        {sessions.map(session => (
-          <button
-            key={session.session_key}
-            className={`sidebar__item ${session.session_key === activeSessionKey ? 'sidebar__item--active' : ''}`}
-            onClick={() => setActiveSession(session.session_key)}
-          >
-            <span style={{ flex: 1 }}>
-              <div style={{ fontWeight: 500 }}>{session.event_name}</div>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                {formatSessionType(session.session_type)} · {formatDate(session.date)}
-              </div>
-            </span>
-          </button>
-        ))}
+        {sessions.map(session => {
+          const isReingesting = reingestingKey === session.session_key;
+          return (
+            <button
+              key={session.session_key}
+              className={`sidebar__item ${session.session_key === activeSessionKey ? 'sidebar__item--active' : ''}`}
+              onClick={() => setActiveSession(session.session_key)}
+            >
+              <span style={{ flex: 1 }}>
+                <div style={{ fontWeight: 500 }}>{session.event_name}</div>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                  {formatSessionType(session.session_type)} · {formatDate(session.date)}
+                </div>
+              </span>
+              <span
+                className="sidebar__reingest-btn"
+                role="button"
+                tabIndex={-1}
+                title="Re-ingest session"
+                onClick={(e) => handleReingest(e, session)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '4px',
+                  borderRadius: 'var(--radius-sm)',
+                  color: isReingesting ? 'var(--accent)' : 'var(--text-tertiary)',
+                  opacity: isReingesting ? 1 : 0,
+                  transition: 'opacity 0.15s ease, color 0.15s ease, background 0.15s ease',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <RotateCcw size={13} className={isReingesting ? 'animate-spin' : ''} />
+              </span>
+            </button>
+          );
+        })}
       </div>
     </aside>
   );

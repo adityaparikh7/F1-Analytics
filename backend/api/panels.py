@@ -59,8 +59,8 @@ PANEL_CATALOGUE = [
     {
         "id": "track-map",
         "title": "Track Map",
-        "category": "telemetry",
-        "description": "Circuit map with mini-sector speed colouring.",
+        "category": "session",
+        "description": "Circuit map with mini-sector speed colouring and corner markers.",
         "defaultSize": {"w": 6, "h": 6},
         "minSize": {"w": 4, "h": 4},
     },

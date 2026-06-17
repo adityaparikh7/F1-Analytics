@@ -11,7 +11,7 @@ import { registerPanel } from '../../core/panelRegistry';
 import type { PanelProps } from '../../core/panelRegistry';
 import type { ResultData } from '../../lib/api';
 import { api } from '../../lib/api';
-import { formatPosition, formatPoints, formatLapTime, formatGap } from '../../lib/format';
+import { formatPosition, formatPoints, formatLapTime, formatGap, formatRaceTime } from '../../lib/format';
 import { getDriverColour } from '../../lib/colours';
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -29,6 +29,45 @@ function getSessionCategory(sessionKey: string): SessionCategory {
   if (['Q', 'SQ', 'SS'].includes(type)) return 'qualifying';
   if (['FP1', 'FP2', 'FP3'].includes(type)) return 'practice';
   return 'race';
+}
+
+/**
+ * Determine the display text for the Time / Gap column in race results.
+ * - P1 (leader): full elapsed race time (e.g. "1:32:45.123")
+ * - On-lead-lap finishers: gap string (e.g. "+4.567")
+ * - Lapped drivers: "+N Lap(s)" extracted from status
+ * - DNF / retired: "—"
+ */
+function getRaceTimeGap(
+  r: ResultData,
+  isLeader: boolean,
+): { text: string; className: string } {
+  if (isLeader) {
+    return { text: formatRaceTime(r.time), className: '' };
+  }
+
+  // Lapped drivers: status contains "+1 Lap", "+2 Laps", etc.
+  const lapMatch = r.status?.match(/^\+\s*(\d+)\s+Lap/i);
+  if (lapMatch) {
+    const lapCount = parseInt(lapMatch[1], 10);
+    const label = lapCount === 1 ? '+1 Lap' : `+${lapCount} Laps`;
+    return { text: label, className: 'text-amber' };
+  }
+
+  // DNF / retired / disqualified — no time to show
+  if (
+    r.status && r.status !== 'Finished' &&
+    !r.gap_to_leader
+  ) {
+    return { text: 'DNF', className: 'text-red' };
+  }
+
+  // On-lead-lap finisher: show time gap
+  if (r.gap_to_leader) {
+    return { text: formatGap(r.gap_to_leader), className: 'text-secondary' };
+  }
+
+  return { text: '—', className: 'text-tertiary' };
 }
 
 // ── Shared Driver Cell ─────────────────────────────────────────────────
@@ -66,28 +105,37 @@ const RaceResultsTable: React.FC<{ results: ResultData[] }> = ({ results }) => (
         <th>Pos</th>
         <th>Driver</th>
         <th>Team</th>
+        <th>Time / Gap</th>
         <th>Status</th>
         <th>Points</th>
         <th>Grid</th>
       </tr>
     </thead>
     <tbody>
-      {results.map(r => (
-        <tr key={r.driver}>
-          <td>
-            <span className="data-table__position">{formatPosition(r.position)}</span>
-          </td>
-          <td>
-            <DriverCell driver={r.driver} driverNumber={r.driver_number} team={r.team} />
-          </td>
-          <td className="text-secondary">{r.team || '—'}</td>
-          <td className={r.status === 'Finished' ? 'text-teal' : r.status?.includes('DNF') ? 'text-red' : ''}>
-            {r.status || '—'}
-          </td>
-          <td>{formatPoints(r.points)}</td>
-          <td className="text-secondary">{formatPosition(r.grid_position)}</td>
-        </tr>
-      ))}
+      {results.map((r, idx) => {
+        const isLeader = idx === 0 && r.position === 1;
+        const { text: timeText, className: timeCls } = getRaceTimeGap(r, isLeader);
+
+        return (
+          <tr key={r.driver}>
+            <td>
+              <span className="data-table__position">{formatPosition(r.position)}</span>
+            </td>
+            <td>
+              <DriverCell driver={r.driver} driverNumber={r.driver_number} team={r.team} />
+            </td>
+            <td className="text-secondary">{r.team || '—'}</td>
+            <td className={timeCls} style={isLeader ? { fontWeight: 600 } : undefined}>
+              {timeText}
+            </td>
+            <td className={r.status === 'Finished' ? 'text-teal' : r.status?.includes('DNF') ? 'text-red' : ''}>
+              {r.status || '—'}
+            </td>
+            <td>{formatPoints(r.points)}</td>
+            <td className="text-secondary">{formatPosition(r.grid_position)}</td>
+          </tr>
+        );
+      })}
     </tbody>
   </table>
 );
