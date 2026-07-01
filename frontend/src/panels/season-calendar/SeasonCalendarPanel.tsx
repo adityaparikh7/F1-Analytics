@@ -80,10 +80,10 @@ const SeasonCalendarPanel: React.FC<PanelProps> = () => {
         <thead>
           <tr>
             <th style={{ paddingLeft: '12px' }}>Round</th>
+            <th>Date</th>
             <th>Event</th>
             <th>Circuit</th>
             {/* <th>Country</th> */}
-            <th>Date</th>
             <th>Format</th>
             <th>Winner</th>
             <th>Sprint Winner</th>
@@ -134,6 +134,7 @@ const SeasonCalendarPanel: React.FC<PanelProps> = () => {
                     {ev.round_number}
                   </span>
                 </td>
+                <td style={{ color: 'var(--text-primary)' }}>{formatDate(ev.event_date)}</td>
                 <td style={{ 
                   fontWeight: isNext ? 600 : 500, 
                   color: 'var(--text-primary)' 
@@ -156,9 +157,9 @@ const SeasonCalendarPanel: React.FC<PanelProps> = () => {
                     )}
                   </div>
                 </td>
+                
                 <td className="text-secondary" style={{ color: 'var(--text-secondary)' }}>{ev.circuit_name}, {ev.country}</td>
                 {/* <td className="text-secondary" style={{ color: 'var(--text-secondary)' }}>{ev.country}</td> */}
-                <td style={{ color: 'var(--text-primary)' }}>{formatDate(ev.event_date)}</td>
                 <td>
                   {ev.event_format !== 'conventional' && (
                     <span className="badge" style={{
