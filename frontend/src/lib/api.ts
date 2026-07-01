@@ -5,21 +5,35 @@
  * The frontend never reads Parquet or DuckDB directly.
  */
 
+import { logger } from './logger';
+
 const API_BASE = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+  const method = options?.method || 'GET';
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error ${response.status}: ${error}`);
+  logger.debug(`API Request: ${method} ${path}`);
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`API Error ${response.status} (${method} ${path}): ${errorText}`);
+      throw new Error(`API Error ${response.status}: ${errorText}`);
+    }
+
+    return response.json();
+  } catch (err) {
+    if (err instanceof Error && !err.message.startsWith('API Error')) {
+      logger.error(`Network Error (${method} ${path}): ${err.message}`);
+    }
+    throw err;
   }
-
-  return response.json();
 }
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -92,6 +106,7 @@ export interface ResultData {
 
 export interface TelemetryPoint {
   distance: number | null;
+  time: number | null;
   speed: number | null;
   throttle: number | null;
   brake: number | null;
@@ -110,11 +125,25 @@ export interface TelemetryResponse {
   data: TelemetryPoint[];
 }
 
+export interface TopSpeedData {
+  driver: string;
+  top_speeds: (number | null)[];
+  average: number | null;
+  best: number | null;
+}
+
+export interface TopSpeedsResponse {
+  source: string;
+  data: TopSpeedData[];
+}
+
 export interface CornerData {
   number: number;
   letter: string | null;
   angle: number | null;
   distance: number | null;
+  x: number | null;
+  y: number | null;
 }
 
 export interface DriverStanding {
@@ -145,6 +174,10 @@ export interface CalendarEvent {
   circuit_name: string;
   event_date: string | null;
   event_format: string;
+  winner: string | null;
+  winner_team: string | null;
+  sprint_winner: string | null;
+  sprint_winner_team: string | null;
 }
 
 export interface PanelCatalogueItem {
@@ -189,6 +222,12 @@ export const api = {
     const params = new URLSearchParams({ driver, lap });
     if (downsample) params.set('downsample', String(downsample));
     return request<TelemetryResponse>(`/sessions/${key}/telemetry?${params}`);
+  },
+
+  getTopSpeeds: (key: string, topN?: number) => {
+    const params = new URLSearchParams();
+    if (topN) params.set('top_n', String(topN));
+    return request<TopSpeedsResponse>(`/sessions/${key}/top-speeds?${params}`);
   },
 
   getCircuitInfo: (key: string) =>

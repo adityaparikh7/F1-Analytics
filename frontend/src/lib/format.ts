@@ -29,6 +29,24 @@ export function formatGap(gap: string | number | null | undefined): string {
 }
 
 /**
+ * Format total elapsed race time: "1:32:45.123"
+ * Used for the race winner's total time.
+ */
+export function formatRaceTime(seconds: number | null | undefined): string {
+  if (seconds == null || isNaN(seconds)) return '—';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (hrs > 0) {
+    return `${hrs}:${String(mins).padStart(2, '0')}:${secs.toFixed(3).padStart(6, '0')}`;
+  }
+  if (mins > 0) {
+    return `${mins}:${secs.toFixed(3).padStart(6, '0')}`;
+  }
+  return secs.toFixed(3);
+}
+
+/**
  * Format position: "P1", "P2", etc.
  */
 export function formatPosition(pos: number | null | undefined): string {
@@ -96,4 +114,22 @@ export function formatSessionType(type: string): string {
     'R': 'Race',
   };
   return map[type] || type;
+}
+
+/**
+ * Get Pace Rating based on delta to fastest
+ */
+export function getPaceRating(delta: number): string {
+  if (delta <= 0.2) return 'Elite';
+  if (delta <= 1.0) return 'Competitive';
+  if (delta <= 2.5) return 'Midfield';
+  if (delta <= 3.0) return 'Backmarkers';
+  return 'Off Pace';
+}
+
+/**
+ * Calculate 107% threshold for a given fastest lap (in seconds)
+ */
+export function getProperLapThreshold(fastestLap: number): number {
+  return fastestLap * 1.07;
 }

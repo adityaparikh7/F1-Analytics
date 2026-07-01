@@ -5,6 +5,7 @@
  */
 
 import React, { useRef, useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import { getPanel } from '../core/panelRegistry';
 import { useLayoutStore } from '../store/layoutStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -73,8 +74,9 @@ export const PanelCard: React.FC<PanelCardProps> = ({ instanceId, panelTypeId, c
           className="panel-card__action"
           onClick={() => removePanel(instanceId)}
           title="Remove panel"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
-          ✕
+          <X size={14} />
         </button>
       </div>
       <div className="panel-card__content" ref={contentRef}>

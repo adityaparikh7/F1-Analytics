@@ -93,8 +93,7 @@
   --transition-slow: 300ms ease;
 }
 
-/* ── Google Fonts Import ───────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap');
+
 
 /* ── Reset & Base ──────────────────────────────────────────────────── */
 *, *::before, *::after {
@@ -209,6 +208,12 @@ input:focus, select:focus {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  text-decoration: none;
+}
+
+.topbar__logo:hover {
+  text-decoration: none;
+  color: var(--accent-red);
 }
 
 .topbar__logo-icon {
@@ -335,6 +340,15 @@ input:focus, select:focus {
 .sidebar__item--active {
   background: var(--bg-active);
   color: var(--text-primary);
+}
+
+.sidebar__item:hover .sidebar__reingest-btn {
+  opacity: 1 !important;
+}
+
+.sidebar__reingest-btn:hover {
+  color: var(--accent) !important;
+  background: var(--bg-active);
 }
 
 /* ── Grid Canvas ───────────────────────────────────────────────────── */
@@ -650,6 +664,15 @@ input:focus, select:focus {
 @keyframes skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
 
 /* ── react-grid-layout overrides ───────────────────────────────────── */

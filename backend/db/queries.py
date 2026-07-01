@@ -134,6 +134,7 @@ def get_driver_standings(year: int, round_number: int | None = None) -> list[dic
             CROSS JOIN max_round m
             WHERE s.year = ? AND s.round_number <= m.rnd
             GROUP BY s.year, r.driver
+            HAVING SUM(CASE WHEN s.session_type != 'FP1' THEN 1 ELSE 0 END) > 0
         )
         SELECT
             year,
@@ -185,7 +186,25 @@ def get_constructor_standings(year: int, round_number: int | None = None) -> lis
 # ── Calendar ───────────────────────────────────────────────────────────
 
 def get_calendar(year: int) -> list[dict]:
-    return _fetchall_dicts(
-        "SELECT * FROM calendar WHERE year = ? ORDER BY round_number",
-        [year],
-    )
+    sql = """
+        SELECT 
+            c.year,
+            c.round_number,
+            c.event_name,
+            c.country,
+            c.circuit_name,
+            c.event_date,
+            c.event_format,
+            r_race.driver AS winner,
+            r_race.team AS winner_team,
+            r_sprint.driver AS sprint_winner,
+            r_sprint.team AS sprint_winner_team
+        FROM calendar c
+        LEFT JOIN sessions s_race ON s_race.year = c.year AND s_race.round_number = c.round_number AND s_race.session_type = 'R'
+        LEFT JOIN results r_race ON r_race.session_key = s_race.session_key AND r_race.position = 1
+        LEFT JOIN sessions s_sprint ON s_sprint.year = c.year AND s_sprint.round_number = c.round_number AND s_sprint.session_type = 'S'
+        LEFT JOIN results r_sprint ON r_sprint.session_key = s_sprint.session_key AND r_sprint.position = 1
+        WHERE c.year = ?
+        ORDER BY c.round_number
+    """
+    return _fetchall_dicts(sql, [year])

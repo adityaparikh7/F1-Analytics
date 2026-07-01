@@ -9,6 +9,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { useUIStore } from '../store/uiStore';
 import { api } from '../lib/api';
 import { formatSessionType, formatDate } from '../lib/format';
+import { CalendarSync, RefreshCw, RotateCcw } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const { sidebarCollapsed } = useUIStore();
@@ -25,6 +26,7 @@ export const Sidebar: React.FC = () => {
   const [ingesting, setIngesting] = useState(false);
   const [ingestEvent, setIngestEvent] = useState('');
   const [ingestType, setIngestType] = useState('R');
+  const [reingestingKey, setReingestingKey] = useState<string | null>(null);
 
   useEffect(() => {
     loadSessions();
@@ -40,10 +42,29 @@ export const Sidebar: React.FC = () => {
         loadSessions();
         setIngesting(false);
       }, 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Ingest failed:', err);
-      alert(`Ingest failed: ${err.message || err}`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert(`Ingest failed: ${errMsg}`);
       setIngesting(false);
+    }
+  };
+
+  const handleReingest = async (e: React.MouseEvent, session: { session_key: string; year: number; round_number: number; session_type: string; event_name: string }) => {
+    e.stopPropagation(); // Prevent session selection
+    setReingestingKey(session.session_key);
+    try {
+      await api.ingestSession(session.year, session.session_type, session.round_number);
+      // Reload sessions after a short delay to allow background task to complete
+      setTimeout(() => {
+        loadSessions();
+        setReingestingKey(null);
+      }, 3000);
+    } catch (err: unknown) {
+      console.error('Reingest failed:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert(`Reingest failed for ${session.event_name}: ${errMsg}`);
+      setReingestingKey(null);
     }
   };
 
@@ -67,8 +88,9 @@ export const Sidebar: React.FC = () => {
   if (sidebarCollapsed) {
     return (
       <aside className="sidebar sidebar--collapsed">
-        <div style={{ padding: 'var(--space-3)', textAlign: 'center' }}>
-          <span style={{ fontSize: 'var(--fs-lg)' }}>🏎</span>
+        <div style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'center', alignItems: 'center' , fontSize: '20px'}}>
+          {/* <Car size={20} className="text-secondary" /> */}
+          🏎️ 
         </div>
       </aside>
     );
@@ -110,18 +132,24 @@ export const Sidebar: React.FC = () => {
             className="topbar__btn"
             onClick={handleIngestCalendar}
             title="Load calendar"
-            style={{ fontSize: 'var(--fs-sm)' }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px' }}
           >
-            📅
+            <CalendarSync size={14} />
           </button>
           <button
             className="topbar__btn"
             onClick={handleSyncSeason}
             disabled={ingesting}
             title="Sync missing sessions"
-            style={{ fontSize: 'var(--fs-sm)', opacity: ingesting ? 0.6 : 1 }}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              padding: '4px 8px', 
+              opacity: ingesting ? 0.6 : 1 
+            }}
           >
-            🔄
+            <RefreshCw size={14} className={ingesting ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
@@ -138,20 +166,44 @@ export const Sidebar: React.FC = () => {
             <br />Use the form above to load a session.
           </div>
         )}
-        {sessions.map(session => (
-          <button
-            key={session.session_key}
-            className={`sidebar__item ${session.session_key === activeSessionKey ? 'sidebar__item--active' : ''}`}
-            onClick={() => setActiveSession(session.session_key)}
-          >
-            <span style={{ flex: 1 }}>
-              <div style={{ fontWeight: 500 }}>{session.event_name}</div>
-              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                {formatSessionType(session.session_type)} · {formatDate(session.date)}
-              </div>
-            </span>
-          </button>
-        ))}
+        {sessions.map(session => {
+          const isReingesting = reingestingKey === session.session_key;
+          return (
+            <button
+              key={session.session_key}
+              className={`sidebar__item ${session.session_key === activeSessionKey ? 'sidebar__item--active' : ''}`}
+              onClick={() => setActiveSession(session.session_key)}
+            >
+              <span style={{ flex: 1 }}>
+                <div style={{ fontWeight: 500 }}>{session.event_name}</div>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                  {formatSessionType(session.session_type)} · {formatDate(session.date)}
+                </div>
+              </span>
+              <span
+                className="sidebar__reingest-btn"
+                role="button"
+                tabIndex={-1}
+                title="Re-ingest session"
+                onClick={(e) => handleReingest(e, session)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '4px',
+                  borderRadius: 'var(--radius-sm)',
+                  color: isReingesting ? 'var(--accent)' : 'var(--text-tertiary)',
+                  opacity: isReingesting ? 1 : 0,
+                  transition: 'opacity 0.15s ease, color 0.15s ease, background 0.15s ease',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <RotateCcw size={13} className={isReingesting ? 'animate-spin' : ''} />
+              </span>
+            </button>
+          );
+        })}
       </div>
     </aside>
   );

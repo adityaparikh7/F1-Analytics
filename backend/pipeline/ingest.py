@@ -304,18 +304,19 @@ def _store_results(session, session_key: str):
             logger.warning("Failed to compute practice results for %s: %s", session_key, exc)
 
     # ── Race / Sprint: compute gap from time column ────────────────
+    # In FastF1 results, Time for P1 is the total race duration.
+    # For all other classified drivers, Time is already the gap to P1.
+    # Lapped drivers have Time = NaT (handled via status in frontend).
     else:
+        positions = df["position"].values
         times = df["time"].values
         if times is not None and len(times) > 0:
-            leader_time = None
             gaps = []
-            for t in times:
-                if t is not None and not pd.isna(t):
-                    if leader_time is None:
-                        leader_time = t
-                        gaps.append("Leader")
-                    else:
-                        gaps.append(f"+{t - leader_time:.3f}")
+            for pos, t in zip(positions, times):
+                if pos is not None and not pd.isna(pos) and int(pos) == 1:
+                    gaps.append("Leader")
+                elif t is not None and not pd.isna(t):
+                    gaps.append(f"+{t:.3f}")
                 else:
                     gaps.append(None)
             df["gap_to_leader"] = gaps
@@ -413,6 +414,7 @@ def fetch_telemetry(
 
     df = pd.DataFrame({
         "distance": telemetry["Distance"].values if "Distance" in telemetry.columns else None,
+        "time": (telemetry["Time"] - telemetry["Time"].iloc[0]).dt.total_seconds().values if "Time" in telemetry.columns else None,
         "speed": telemetry["Speed"].values if "Speed" in telemetry.columns else None,
         "throttle": telemetry["Throttle"].values if "Throttle" in telemetry.columns else None,
         "brake": telemetry["Brake"].values if "Brake" in telemetry.columns else None,
@@ -450,6 +452,8 @@ def fetch_circuit_info(
             "letter": corners.get("Letter").astype(str) if "Letter" in corners.columns else None,
             "angle": corners.get("Angle").values if "Angle" in corners.columns else None,
             "distance": corners.get("Distance").values if "Distance" in corners.columns else None,
+            "x": corners.get("X").values if "X" in corners.columns else None,
+            "y": corners.get("Y").values if "Y" in corners.columns else None,
         })
         df = df.replace({np.nan: None})
         return df.to_dict(orient="records")

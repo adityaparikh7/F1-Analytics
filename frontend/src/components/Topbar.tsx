@@ -3,6 +3,8 @@
  */
 
 import React from 'react';
+import { Link } from 'react-router-dom';
+import { Menu, Save, Plus } from 'lucide-react';
 import { useSessionStore } from '../store/sessionStore';
 import { useUIStore } from '../store/uiStore';
 import { useLayoutStore } from '../store/layoutStore';
@@ -15,10 +17,27 @@ export const Topbar: React.FC = () => {
 
   return (
     <header className="topbar">
-      {/* Logo */}
-      <div className="topbar__logo" onClick={toggleSidebar} style={{ cursor: 'pointer' }}>
-        <div className="topbar__logo-icon" />
-        <span>PITWALL</span>
+      {/* Sidebar Toggle & Logo */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <button
+          onClick={toggleSidebar}
+          className="topbar__btn"
+          style={{
+            padding: '4px',
+            minWidth: 'auto',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title="Toggle Sidebar"
+        >
+          <Menu size={16} />
+        </button>
+        <Link to="/" className="topbar__logo">
+          <div className="topbar__logo-icon" />
+          <span>PITWALL</span>
+        </Link>
       </div>
 
       {/* Session breadcrumb */}
@@ -80,13 +99,18 @@ export const Topbar: React.FC = () => {
             const name = prompt('Layout name:', currentLayoutName);
             if (name) saveLayout(name);
           }}
+          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
         >
-          💾 Save
+          <Save size={14} /> Save
         </button>
 
         {/* Add panel */}
-        <button className="topbar__btn topbar__btn--primary" onClick={openCatalogue}>
-          + Panel
+        <button 
+          className="topbar__btn topbar__btn--primary" 
+          onClick={openCatalogue}
+          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+        >
+          <Plus size={14} /> Panel
         </button>
       </div>
     </header>
