@@ -134,6 +134,7 @@ def get_driver_standings(year: int, round_number: int | None = None) -> list[dic
             CROSS JOIN max_round m
             WHERE s.year = ? AND s.round_number <= m.rnd
             GROUP BY s.year, r.driver
+            HAVING SUM(CASE WHEN s.session_type != 'FP1' THEN 1 ELSE 0 END) > 0
         )
         SELECT
             year,
