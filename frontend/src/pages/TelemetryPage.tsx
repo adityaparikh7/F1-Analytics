@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/sessionStore';
-import type { TelemetryResponse, LapData, CornerData } from '../lib/api';
+import type { TelemetryResponse, LapData, CornerData, TelemetryPoint } from '../lib/api';
 import { api } from '../lib/api';
 import { getDriverColour, adjustColorLightness, DRIVER_TEAMS } from '../lib/colours';
 import { formatLapTime, formatSectorTime } from '../lib/format';
@@ -54,8 +54,51 @@ const TelemetryPage: React.FC = () => {
 
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [hoverY, setHoverY] = useState<number | null>(null);
+  
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackTime, setPlaybackTime] = useState<number>(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const lastTimeRef = useRef<number | null>(null);
+  const reqRef = useRef<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+
+  const maxTime = useMemo(() => {
+    let mt = 0;
+    if (tel1 && tel1.data.length) mt = Math.max(mt, tel1.data[tel1.data.length - 1].time || 0);
+    if (tel2 && tel2.data.length) mt = Math.max(mt, tel2.data[tel2.data.length - 1].time || 0);
+    return mt;
+  }, [tel1, tel2]);
+
+  useEffect(() => {
+    const animate = (time: number) => {
+      if (lastTimeRef.current != null) {
+        const dt = (time - lastTimeRef.current) / 1000;
+        setPlaybackTime(prev => {
+          const next = prev + dt * playbackSpeed;
+          if (next >= maxTime && maxTime > 0) {
+            setIsPlaying(false);
+            return maxTime;
+          }
+          return next;
+        });
+      }
+      lastTimeRef.current = time;
+      reqRef.current = requestAnimationFrame(animate);
+    };
+
+    if (isPlaying) {
+      lastTimeRef.current = performance.now();
+      reqRef.current = requestAnimationFrame(animate);
+    } else {
+      if (reqRef.current) cancelAnimationFrame(reqRef.current);
+      lastTimeRef.current = null;
+    }
+    return () => {
+      if (reqRef.current) cancelAnimationFrame(reqRef.current);
+    };
+  }, [isPlaying, playbackSpeed, maxTime]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -258,38 +301,96 @@ const TelemetryPage: React.FC = () => {
   const baseSvgH = Math.max(200, Math.floor((dimensions.height) / activeArr.length));
   const plotW = chartW - padL - padR;
 
-  const findClosest = (tel: TelemetryResponse | null, x: number) => {
-    if (!tel || !tel.data.length || x < padL || x > padL + plotW) return null;
-    const targetDist = ((x - padL) / plotW) * maxDist;
-    let closest = tel.data[0];
-    let minDiff = Math.abs((closest.distance || 0) - targetDist);
-    for (const pt of tel.data) {
-      const diff = Math.abs((pt.distance || 0) - targetDist);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = pt;
+  const interpolateByDistance = (tel: TelemetryResponse | null, dist: number) => {
+    if (!tel || !tel.data.length || dist < 0 || dist > maxDist) return null;
+    if (dist <= (tel.data[0].distance || 0)) return tel.data[0];
+    if (dist >= (tel.data[tel.data.length - 1].distance || 0)) return tel.data[tel.data.length - 1];
+
+    let left = 0;
+    let right = tel.data.length - 1;
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      if ((tel.data[mid].distance || 0) < dist) {
+        left = mid + 1;
+      } else {
+        right = mid - 1;
       }
     }
-    return closest;
+    const p1 = tel.data[right];
+    const p2 = tel.data[left];
+    if (!p1 || !p2 || p1.distance == null || p2.distance == null || p1.distance === p2.distance) return p1 || p2;
+    const ratio = (dist - p1.distance) / (p2.distance - p1.distance);
+    const lerp = (v1: number | null, v2: number | null) => (v1 == null || v2 == null) ? (v1 ?? v2) : v1 + (v2 - v1) * ratio;
+    return {
+      distance: dist, time: lerp(p1.time, p2.time), speed: lerp(p1.speed, p2.speed),
+      throttle: lerp(p1.throttle, p2.throttle), brake: lerp(p1.brake, p2.brake),
+      gear: p1.gear, rpm: lerp(p1.rpm, p2.rpm), drs: p1.drs, x: lerp(p1.x, p2.x), y: lerp(p1.y, p2.y)
+    } as TelemetryPoint;
   };
 
-  const hoverPt1 = hoverX !== null ? findClosest(tel1, hoverX) : null;
-  const hoverPt2 = hoverX !== null ? findClosest(tel2, hoverX) : null;
+  const isReplayActive = isPlaying || playbackTime > 0;
 
-  const hoverDelta = useMemo(() => {
-    if (!deltaTrace || hoverX === null) return null;
-    const targetDist = ((hoverX - padL) / plotW) * maxDist;
-    let closest = deltaTrace.points[0];
-    let minDiff = Math.abs((closest.distance || 0) - targetDist);
-    for (const pt of deltaTrace.points) {
-      const diff = Math.abs((pt.distance || 0) - targetDist);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = pt;
+  const interpolateByTime = (tel: TelemetryResponse | null, t: number) => {
+    if (!tel || !tel.data.length) return null;
+    if (t <= (tel.data[0].time || 0)) return tel.data[0];
+    if (t >= (tel.data[tel.data.length - 1].time || 0)) return tel.data[tel.data.length - 1];
+
+    let left = 0;
+    let right = tel.data.length - 1;
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      if ((tel.data[mid].time || 0) < t) {
+        left = mid + 1;
+      } else {
+        right = mid - 1;
       }
     }
-    return closest;
-  }, [deltaTrace, hoverX, padL, plotW, maxDist]);
+    const p1 = tel.data[right];
+    const p2 = tel.data[left];
+    if (!p1 || !p2 || p1.time == null || p2.time == null || p1.time === p2.time) return p1 || p2;
+    const ratio = (t - p1.time) / (p2.time - p1.time);
+    const lerp = (v1: number | null, v2: number | null) => (v1 == null || v2 == null) ? (v1 ?? v2) : v1 + (v2 - v1) * ratio;
+    return {
+      distance: lerp(p1.distance, p2.distance), time: t, speed: lerp(p1.speed, p2.speed),
+      throttle: lerp(p1.throttle, p2.throttle), brake: lerp(p1.brake, p2.brake),
+      gear: p1.gear, rpm: lerp(p1.rpm, p2.rpm), drs: p1.drs, x: lerp(p1.x, p2.x), y: lerp(p1.y, p2.y)
+    } as TelemetryPoint;
+  };
+
+  const hoverDist = hoverX !== null ? ((hoverX - padL) / plotW) * maxDist : null;
+  const hoverPt1 = isReplayActive ? interpolateByTime(tel1, playbackTime) : (hoverDist !== null ? interpolateByDistance(tel1, hoverDist) : null);
+  const hoverPt2 = isReplayActive ? interpolateByTime(tel2, playbackTime) : (hoverDist !== null ? interpolateByDistance(tel2, hoverDist) : null);
+
+  const hoverDelta = useMemo(() => {
+    if (!deltaTrace) return null;
+    
+    const targetDist = isReplayActive ? hoverPt1?.distance : hoverDist;
+    if (targetDist == null) return null;
+
+    if (targetDist <= deltaTrace.points[0].distance) return deltaTrace.points[0];
+    if (targetDist >= deltaTrace.points[deltaTrace.points.length - 1].distance) return deltaTrace.points[deltaTrace.points.length - 1];
+
+    let left = 0;
+    let right = deltaTrace.points.length - 1;
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      if (deltaTrace.points[mid].distance < targetDist) {
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+
+    const p1 = deltaTrace.points[right];
+    const p2 = deltaTrace.points[left];
+    if (!p1 || !p2 || p1.distance === p2.distance) return p1 || p2;
+
+    const ratio = (targetDist - p1.distance) / (p2.distance - p1.distance);
+    return {
+      distance: targetDist,
+      delta: p1.delta + (p2.delta - p1.delta) * ratio
+    };
+  }, [deltaTrace, hoverDist, isReplayActive, hoverPt1?.distance]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!containerRef.current) return;
@@ -364,7 +465,7 @@ const TelemetryPage: React.FC = () => {
 
       {/* Controls */}
       <div style={{ background: 'var(--surface-primary)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 'var(--space-6)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-6)', flexWrap: 'wrap', marginBottom: (tel1 || tel2) ? 'var(--space-4)' : '0' }}>
           
           {/* Trace 1 Controls */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -418,6 +519,40 @@ const TelemetryPage: React.FC = () => {
           </div>
 
         </div>
+
+        {/* Playback Controls Row */}
+        {(tel1 || tel2) && (
+          <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--border-subtle)' }}>
+            <button className="btn btn--outline" onClick={() => setIsPlaying(!isPlaying)} style={{ width: '80px' }}>
+              {isPlaying ? 'Pause' : 'Play'}
+            </button>
+            <button className="btn btn--outline" onClick={() => { setIsPlaying(false); setPlaybackTime(0); }}>
+              Stop
+            </button>
+            <select value={playbackSpeed} onChange={e => setPlaybackSpeed(Number(e.target.value))} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-default)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)' }}>
+              <option value={1}>1x Speed</option>
+              <option value={2}>2x Speed</option>
+              <option value={5}>5x Speed</option>
+              <option value={10}>10x Speed</option>
+            </select>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{playbackTime.toFixed(1)}s</span>
+              <input 
+                type="range" 
+                min={0} 
+                max={maxTime || 100} 
+                step={0.1} 
+                value={playbackTime} 
+                onChange={e => {
+                  setPlaybackTime(Number(e.target.value));
+                  if (isPlaying) setIsPlaying(false);
+                }}
+                style={{ flex: 1, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{maxTime.toFixed(1)}s</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {loadingLaps && <div className="state-loading">Loading laps...</div>}
@@ -551,6 +686,34 @@ const TelemetryPage: React.FC = () => {
                   </g>
                 )}
                 
+                {/* Playback Dots on Traces */}
+                {isReplayActive && ch !== 'track-map' && ch !== 'delta' && (
+                  <g>
+                    {tel1 && hoverPt1 && hoverPt1.distance != null && (hoverPt1 as any)[ch] != null && (
+                      <circle 
+                        cx={padL + (hoverPt1.distance / maxDist) * plotW} 
+                        cy={padT + plotH - ((Math.min(Math.max((hoverPt1 as any)[ch] as number, cfg.min), cfg.max) - cfg.min) / (cfg.max - cfg.min)) * plotH} 
+                        r={4} fill={driverColours.color1} stroke="var(--surface-primary)" strokeWidth={1.5} 
+                      />
+                    )}
+                    {tel2 && hoverPt2 && hoverPt2.distance != null && (hoverPt2 as any)[ch] != null && (
+                      <circle 
+                        cx={padL + (hoverPt2.distance / maxDist) * plotW} 
+                        cy={padT + plotH - ((Math.min(Math.max((hoverPt2 as any)[ch] as number, cfg.min), cfg.max) - cfg.min) / (cfg.max - cfg.min)) * plotH} 
+                        r={4} fill={driverColours.color2} stroke="var(--surface-primary)" strokeWidth={1.5} 
+                      />
+                    )}
+                  </g>
+                )}
+                
+                {isReplayActive && ch === 'delta' && hoverDelta && hoverDelta.distance != null && deltaTrace && (
+                  <circle 
+                    cx={padL + (hoverDelta.distance / maxDist) * plotW} 
+                    cy={padT + plotH - ((Math.min(Math.max(hoverDelta.delta, deltaTrace.min), deltaTrace.max) - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} 
+                    r={4} fill="var(--text-primary)" stroke="var(--surface-primary)" strokeWidth={1.5} 
+                  />
+                )}
+                
                 {/* Y-axis labels */}
                 {/* Y-axis labels */}
                 {ch !== 'track-map' && (
@@ -561,7 +724,7 @@ const TelemetryPage: React.FC = () => {
                 )}
 
                 {/* Hover Crosshair */}
-                {hoverX !== null && ch !== 'track-map' && (
+                {!isReplayActive && hoverX !== null && ch !== 'track-map' && (
                   <line x1={hoverX} y1={padT} x2={hoverX} y2={padT + plotH} stroke="var(--accent-teal)" strokeWidth={1} opacity={0.5} />
                 )}
               </svg>
@@ -572,10 +735,10 @@ const TelemetryPage: React.FC = () => {
         )}
 
         {/* Hover Tooltip */}
-        {hoverX !== null && hoverY !== null && (tel1 || tel2) && (
+        {(hoverX !== null || isReplayActive) && hoverY !== null && (tel1 || tel2) && (
           <div style={{
             position: 'absolute', 
-            left: hoverX + 15 > chartW - 150 ? hoverX - 160 : hoverX + 15, 
+            left: (hoverX !== null ? hoverX : padL + plotW/2) + 15 > chartW - 150 ? (hoverX !== null ? hoverX : padL + plotW/2) - 160 : (hoverX !== null ? hoverX : padL + plotW/2) + 15, 
             top: hoverY + 15 > (containerRef.current?.scrollHeight || dimensions.height) - 150 ? hoverY - 200 : hoverY + 15,
             background: 'var(--bg-elevated)', border: '1px solid var(--border-emphasis)',
             borderRadius: '6px', padding: '10px', fontSize: '11px', pointerEvents: 'none',
@@ -583,7 +746,11 @@ const TelemetryPage: React.FC = () => {
             fontFamily: 'var(--font-mono)'
           }}>
             <div style={{ color: 'var(--text-tertiary)', marginBottom: '8px', borderBottom: '1px solid var(--border-default)', paddingBottom: '4px' }}>
-              DIST: {Math.round((hoverX - padL) / plotW * maxDist)}m
+              {isReplayActive ? (
+                `TIME: ${playbackTime.toFixed(2)}s`
+              ) : (
+                `DIST: ${hoverX !== null ? Math.round((hoverX - padL) / plotW * maxDist) : 0}m`
+              )}
             </div>
             {tel1 && hoverPt1 && (
               <div style={{ color: driverColours.color1, marginBottom: tel2 ? '8px' : '0' }}>
@@ -591,7 +758,7 @@ const TelemetryPage: React.FC = () => {
                 {activeArr.filter(c => c !== 'delta' && c !== 'track-map').map(ch => (
                   <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{ch.toUpperCase()}:</span>
-                    <span>{(hoverPt1 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
+                    <span>{['speed', 'throttle', 'brake', 'gear', 'rpm'].includes(ch) ? Math.round((hoverPt1 as any)[ch] as number) : (hoverPt1 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
                   </div>
                 ))}
               </div>
@@ -602,7 +769,7 @@ const TelemetryPage: React.FC = () => {
                 {activeArr.filter(c => c !== 'delta' && c !== 'track-map').map(ch => (
                   <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{ch.toUpperCase()}:</span>
-                    <span>{(hoverPt2 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
+                    <span>{['speed', 'throttle', 'brake', 'gear', 'rpm'].includes(ch) ? Math.round((hoverPt2 as any)[ch] as number) : (hoverPt2 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
                   </div>
                 ))}
               </div>
