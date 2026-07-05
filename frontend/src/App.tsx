@@ -30,6 +30,7 @@ import './panels/top-speed-plot/TopSpeedPlotPanel';
 import './panels/driving-phases-plot/DrivingPhasesPlotPanel';
 // import './panels/speed-trace/SpeedTracePanel';
 import './panels/aero-map/AeroMapPanel';
+import './panels/race-control/RaceControlPanel';
 
 const App: React.FC = () => {
   return (

@@ -142,7 +142,7 @@ const RaceResultsTable: React.FC<{ results: ResultData[] }> = ({ results }) => (
 
 // ── Qualifying Table ───────────────────────────────────────────────────
 
-const QualifyingResultsTable: React.FC<{ results: ResultData[] }> = ({ results }) => {
+const QualifyingResultsTable: React.FC<{ results: ResultData[]; isSprintQualifying?: boolean }> = ({ results, isSprintQualifying }) => {
   // Determine which Q columns have any data
   const hasQ1 = results.some(r => r.q1_time != null);
   const hasQ2 = results.some(r => r.q2_time != null);
@@ -155,9 +155,9 @@ const QualifyingResultsTable: React.FC<{ results: ResultData[] }> = ({ results }
           <th>Pos</th>
           <th>Driver</th>
           <th>Team</th>
-          {hasQ1 && <th>Q1</th>}
-          {hasQ2 && <th>Q2</th>}
-          {hasQ3 && <th>Q3</th>}
+          {hasQ1 && <th>{isSprintQualifying ? 'SQ1' : 'Q1'}</th>}
+          {hasQ2 && <th>{isSprintQualifying ? 'SQ2' : 'Q2'}</th>}
+          {hasQ3 && <th>{isSprintQualifying ? 'SQ3' : 'Q3'}</th>}
           <th>Best</th>
           <th>Gap</th>
         </tr>
@@ -297,7 +297,11 @@ const SessionResultsPanel: React.FC<PanelProps> = ({ sessionKey }) => {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      {category === 'qualifying' && <QualifyingResultsTable results={results} />}
+      {category === 'qualifying' && (() => {
+        const type = getSessionType(sessionKey);
+        const isSprintQualifying = ['SQ', 'SS'].includes(type);
+        return <QualifyingResultsTable results={results} isSprintQualifying={isSprintQualifying} />;
+      })()}
       {category === 'practice' && <PracticeResultsTable results={results} />}
       {category === 'race' && <RaceResultsTable results={results} />}
     </div>

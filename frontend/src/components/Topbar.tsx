@@ -73,24 +73,23 @@ export const Topbar: React.FC = () => {
         </span>
 
         {/* Saved layouts dropdown */}
-        {savedLayouts.length > 0 && (
-          <select
-            onChange={e => loadLayout(e.target.value)}
-            value=""
-            style={{
-              background: 'transparent', border: '1px solid var(--border-default)',
-              borderRadius: 'var(--radius-sm)', color: 'var(--text-secondary)',
-              fontSize: 'var(--fs-sm)', padding: '2px 8px', cursor: 'pointer',
-            }}
-          >
-            <option value="" disabled>Layouts</option>
-            {savedLayouts.map(l => (
-              <option key={l.name} value={l.name} style={{ background: 'var(--bg-panel)' }}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        )}
+        <select
+          onChange={e => loadLayout(e.target.value)}
+          value=""
+          disabled={savedLayouts.length === 0}
+          style={{
+            background: 'transparent', border: '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-sm)', color: 'var(--text-secondary)',
+            fontSize: 'var(--fs-sm)', padding: '2px 8px', cursor: 'pointer',
+          }}
+        >
+          <option value="" disabled>Layouts</option>
+          {savedLayouts.map(l => (
+            <option key={l.name} value={l.name} style={{ background: 'var(--bg-panel)' }}>
+              {l.name}
+            </option>
+          ))}
+        </select>
 
         {/* Save layout */}
         <button

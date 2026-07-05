@@ -136,6 +136,14 @@ PANEL_CATALOGUE = [
         "defaultSize": {"w": 6, "h": 6},
         "minSize": {"w": 4, "h": 4},
     },
+    {
+        "id": "race-control",
+        "title": "Race Control Messages",
+        "category": "session",
+        "description": "Log of race control messages, flags, and incidents for the session.",
+        "defaultSize": {"w": 6, "h": 4},
+        "minSize": {"w": 4, "h": 3},
+    },
 ]
 
 

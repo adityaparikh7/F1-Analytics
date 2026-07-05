@@ -159,7 +159,7 @@ interface DriverAero {
 // ── Component ───────────────────────────────────────────────────────
 
 const AeroMapPanel: React.FC<PanelProps> = ({ sessionKey, width, height }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('circuit');
+  const [viewMode, setViewMode] = useState<ViewMode>('quadrant');
   const [driver1Input, setDriver1Input] = useState('');
   const [driver2Input, setDriver2Input] = useState('');
   const [telData, setTelData] = useState<TelemetryResponse[]>([]);

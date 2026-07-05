@@ -86,7 +86,7 @@ def ingest_session(
     # Load session from FastF1
     identifier = round_number if round_number is not None else event
     session = fastf1.get_session(year, identifier, session_type)
-    session.load(laps=True, telemetry=False, weather=False, messages=False)
+    session.load(laps=True, telemetry=False, weather=False, messages=True)
 
     # Determine round number from the loaded session
     actual_round = int(session.event["RoundNumber"])

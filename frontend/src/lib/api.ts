@@ -146,6 +146,18 @@ export interface CornerData {
   y: number | null;
 }
 
+export interface RaceControlMessage {
+  Time: string | null;
+  Category: string | null;
+  Message: string | null;
+  Status: string | null;
+  Flag: string | null;
+  Scope: string | null;
+  Sector: number | null;
+  RacingNumber: string | null;
+  Lap: number | null;
+}
+
 export interface DriverStanding {
   year: number;
   round_number: number;
@@ -232,6 +244,9 @@ export const api = {
 
   getCircuitInfo: (key: string) =>
     request<CornerData[]>(`/sessions/${key}/circuit`),
+
+  getRaceControlMessages: (key: string) =>
+    request<RaceControlMessage[]>(`/sessions/${key}/race-control-messages`),
 
   // Standings
   getDriverStandings: (year: number, round?: number) => {

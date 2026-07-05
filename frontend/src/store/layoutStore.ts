@@ -70,6 +70,19 @@ const DEFAULT_LAYOUT: Layout = [
   { i: 'strategy-board_default', x: 6, y: 5, w: 6, h: 4, minW: 6, minH: 3 },
 ];
 
+// Migrate old manual persistence format to zustand/persist format
+if (typeof window !== 'undefined') {
+  try {
+    const oldStorage = localStorage.getItem('pitwall_layout');
+    if (oldStorage && !oldStorage.includes('"state":')) {
+      const parsed = JSON.parse(oldStorage);
+      localStorage.setItem('pitwall_layout', JSON.stringify({ state: parsed, version: 0 }));
+    }
+  } catch (e) {
+    // Ignore migration errors
+  }
+}
+
 export const useLayoutStore = create<LayoutState>()(
   persist(
     (set, get) => ({

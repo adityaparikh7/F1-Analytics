@@ -8,6 +8,8 @@ from __future__ import annotations
 import fastf1
 import logging
 from typing import Optional
+import pandas as pd
+import json
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
@@ -84,6 +86,37 @@ async def get_session_circuit(session_key: str):
     except Exception as exc:
         logger.error("Failed to fetch circuit info: %s", exc, exc_info=True)
         raise HTTPException(500, f"Failed to fetch circuit info: {exc}")
+
+
+@router.get("/sessions/{session_key}/race-control-messages")
+async def get_race_control_messages(session_key: str):
+    """Get race control messages for a session."""
+    try:
+        parts = session_key.split("_")
+        year = int(parts[0])
+        round_number = int(parts[1])
+        session_type = parts[2]
+    except (ValueError, IndexError):
+        raise HTTPException(400, f"Invalid session_key format: {session_key}")
+
+    try:
+        session = fastf1.get_session(year, round_number, session_type)
+        session.load(telemetry=False, weather=False, messages=True, laps=False)
+        
+        if not hasattr(session, 'race_control_messages') or session.race_control_messages.empty:
+            return []
+            
+        out = session.race_control_messages.copy()
+        for col in out.columns:
+            if pd.api.types.is_timedelta64_dtype(out[col]):
+                out[col] = out[col].apply(lambda x: None if pd.isnull(x) else int(x.total_seconds() * 1000))
+            elif pd.api.types.is_datetime64_any_dtype(out[col]):
+                out[col] = out[col].astype(str).replace('NaT', None)
+                
+        return json.loads(out.to_json(orient='records'))
+    except Exception as exc:
+        logger.error("Failed to fetch race control messages: %s", exc, exc_info=True)
+        raise HTTPException(500, f"Failed to fetch race control messages: {exc}")
 
 
 # ── Ingestion ──────────────────────────────────────────────────────────

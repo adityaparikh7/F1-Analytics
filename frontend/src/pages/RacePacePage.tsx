@@ -46,6 +46,7 @@ const RacePacePage: React.FC = () => {
 
   const [filterProper, setFilterProper] = useState(true);
   const [filterFinishers, setFilterFinishers] = useState(false);
+  const [filterCompound, setFilterCompound] = useState<string>('ALL');
 
   useEffect(() => {
     if (!activeSessionKey) return;
@@ -104,6 +105,13 @@ const RacePacePage: React.FC = () => {
       
       if (filterFinishers && !finishingDrivers.has(lap.driver)) {
         return false;
+      }
+
+      if (filterCompound !== 'ALL') {
+        const lapComp = lap.compound?.toUpperCase() || 'UNKNOWN';
+        if (lapComp !== filterCompound) {
+          return false;
+        }
       }
 
       return true;
@@ -169,7 +177,7 @@ const RacePacePage: React.FC = () => {
     const teamFastest = teamStats.length > 0 ? teamStats[0].mean : 0;
 
     return { filteredLaps: validLaps, driverStats, teamStats, driverFastest, teamFastest };
-  }, [laps, results, filterProper, filterFinishers]);
+  }, [laps, results, filterProper, filterFinishers, filterCompound]);
 
   if (!activeSessionKey) {
     return (
@@ -297,6 +305,27 @@ const RacePacePage: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
+          <select 
+            value={filterCompound} 
+            onChange={e => setFilterCompound(e.target.value)}
+            style={{ 
+              padding: 'var(--space-1) var(--space-2)', 
+              borderRadius: 'var(--radius-md)', 
+              backgroundColor: 'var(--surface-secondary)', 
+              border: '1px solid var(--border-subtle)', 
+              color: 'var(--text-primary)',
+              fontSize: 'var(--fs-sm)',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            <option value="ALL">All Compounds</option>
+            <option value="SOFT">Soft</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="HARD">Hard</option>
+            <option value="INTERMEDIATE">Intermediate</option>
+            <option value="WET">Wet</option>
+          </select>
           <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--fs-sm)', cursor: 'pointer' }}>
             <input type="checkbox" checked={filterFinishers} onChange={e => setFilterFinishers(e.target.checked)} />
             Only Finishers
