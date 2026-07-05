@@ -174,7 +174,7 @@ const PaceStylePanel: React.FC<PanelProps> = ({ sessionKey }) => {
   }, [tel1, tel2, circuit]);
 
   if (!sessionKey) return <div className="state-empty">Select a session to view summary</div>;
-  if (loading) return <div className="state-loading">Loading pace & style profile...</div>;
+  if (loading) return <div className="state-loading">Loading telemetry data...</div>;
   if (error) return <div className="state-error" style={{ fontSize: 'var(--fs-sm)' }}>{error}</div>;
   if (!tel1 || !tel2) return <div className="state-empty">Not enough data</div>;
 
@@ -305,5 +305,5 @@ const PaceStylePanel: React.FC<PanelProps> = ({ sessionKey }) => {
   );
 };
 
-registerPanel({ id: 'telemetry-explorer', title: 'Pace & Style Profiler', category: 'telemetry', Component: PaceStylePanel });
+registerPanel({ id: 'telemetry-explorer', title: 'Telemetry Analysis', category: 'telemetry', Component: PaceStylePanel });
 export default PaceStylePanel;
