@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import { useSessionStore } from '../store/sessionStore';
 import type { TelemetryResponse, LapData, CornerData, TelemetryPoint } from '../lib/api';
 import { api } from '../lib/api';
@@ -30,7 +30,6 @@ const getCompoundShort = (compound: string | null) => {
 };
 
 const TelemetryPage: React.FC = () => {
-  const navigate = useNavigate();
   const { activeSessionKey, sessions } = useSessionStore();
   const session = sessions.find(s => s.session_key === activeSessionKey);
 
@@ -289,7 +288,6 @@ const TelemetryPage: React.FC = () => {
     return (
       <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
         <h2 style={{ marginBottom: 'var(--space-4)' }}>No Session Selected</h2>
-        <button className="btn btn--primary" onClick={() => navigate('/')}>Return to Dashboard</button>
       </div>
     );
   }
@@ -458,9 +456,6 @@ const TelemetryPage: React.FC = () => {
             {session?.event_name} {session?.year} — {session?.session_type}
           </p>
         </div>
-        <button className="btn btn--outline" onClick={() => navigate('/')}>
-          Back to Dashboard
-        </button>
       </div>
 
       {/* Controls */}

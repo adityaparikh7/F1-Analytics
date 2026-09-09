@@ -192,6 +192,14 @@ export interface CalendarEvent {
   sprint_winner_team: string | null;
 }
 
+export interface RadioMessage {
+  utc: string;
+  driver: string;
+  driver_number: string;
+  team_color: string;
+  audio_url: string;
+}
+
 export interface PanelCatalogueItem {
   id: string;
   title: string;
@@ -247,6 +255,9 @@ export const api = {
 
   getRaceControlMessages: (key: string) =>
     request<RaceControlMessage[]>(`/sessions/${key}/race-control-messages`),
+
+  getTeamRadio: (key: string) =>
+    request<{ session_key: string, data: RadioMessage[] }>(`/sessions/${key}/radio`),
 
   // Standings
   getDriverStandings: (year: number, round?: number) => {

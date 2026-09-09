@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import _Plot from 'react-plotly.js';
 const Plot = (_Plot as any).default || _Plot;
 import { api } from '../lib/api';
@@ -35,7 +35,6 @@ const compoundColors: Record<string, string> = {
 };
 
 const RacePacePage: React.FC = () => {
-  const navigate = useNavigate();
   const { activeSessionKey, sessions } = useSessionStore();
   const session = sessions.find(s => s.session_key === activeSessionKey);
 
@@ -183,7 +182,6 @@ const RacePacePage: React.FC = () => {
     return (
       <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
         <h2 style={{ marginBottom: 'var(--space-4)' }}>No Session Selected</h2>
-        <button className="btn btn--primary" onClick={() => navigate('/')}>Return to Dashboard</button>
       </div>
     );
   }
@@ -334,9 +332,6 @@ const RacePacePage: React.FC = () => {
             <input type="checkbox" checked={filterProper} onChange={e => setFilterProper(e.target.checked)} />
             Proper Laptimes (&lt; 107%)
           </label>
-          <button className="btn btn--outline" onClick={() => navigate('/')}>
-            Back to Dashboard
-          </button>
         </div>
       </div>
 
@@ -369,6 +364,7 @@ const RacePacePage: React.FC = () => {
                     <th style={{ padding: 'var(--space-2)' }}>Team</th>
                     <th style={{ padding: 'var(--space-2)' }}>Fastest Lap</th>
                     <th style={{ padding: 'var(--space-2)' }}>Tyre</th>
+                    <th style={{ padding: 'var(--space-2)' }}>Laps</th>
                     <th style={{ padding: 'var(--space-2)' }}>Mean Lap Time</th>
                     <th style={{ padding: 'var(--space-2)' }}>Delta</th>
                     <th style={{ padding: 'var(--space-2)' }}>Rating</th>
@@ -402,6 +398,7 @@ const RacePacePage: React.FC = () => {
                             </span>
                           ) : '—'}
                         </td>
+                        <td style={{ padding: 'var(--space-2)' }}>{stat.laps.length}</td>
                         <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.mean)}</td>
                         <td style={{ padding: 'var(--space-2)' }}>{i === 0 ? 'Best' : `+${delta.toFixed(3)}s`}</td>
                         <td style={{ padding: 'var(--space-2)' }}>
@@ -440,9 +437,10 @@ const RacePacePage: React.FC = () => {
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
                     <th style={{ padding: 'var(--space-2)' }}>Rank</th>
                     <th style={{ padding: 'var(--space-2)' }}>Team</th>
-                    <th style={{ padding: 'var(--space-2)' }}>Mean Lap Time</th>
                     <th style={{ padding: 'var(--space-2)' }}>Fastest Lap</th>
                     <th style={{ padding: 'var(--space-2)' }}>Tyre</th>
+                    <th style={{ padding: 'var(--space-2)' }}>Laps</th>
+                    <th style={{ padding: 'var(--space-2)' }}>Mean Lap Time</th>
                     <th style={{ padding: 'var(--space-2)' }}>Delta</th>
                     <th style={{ padding: 'var(--space-2)' }}>Rating</th>
                   </tr>
@@ -454,7 +452,6 @@ const RacePacePage: React.FC = () => {
                       <tr key={stat.team} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                         <td style={{ padding: 'var(--space-2)' }}>{i + 1}</td>
                         <td style={{ padding: 'var(--space-2)', fontWeight: 600, color: getTeamColour(stat.team) }}>{stat.team}</td>
-                        <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.mean)}</td>
                         <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.fastestLapTime)}</td>
                         <td style={{ padding: 'var(--space-2)' }}>
                           {stat.fastestLapCompound ? (
@@ -475,6 +472,8 @@ const RacePacePage: React.FC = () => {
                             </span>
                           ) : '—'}
                         </td>
+                        <td style={{ padding: 'var(--space-2)' }}>{stat.laps.length}</td>
+                        <td style={{ padding: 'var(--space-2)' }}>{formatLapTime(stat.mean)}</td>
                         <td style={{ padding: 'var(--space-2)' }}>{i === 0 ? 'Best' : `+${delta.toFixed(3)}s`}</td>
                         <td style={{ padding: 'var(--space-2)' }}>
                           <span style={{ 

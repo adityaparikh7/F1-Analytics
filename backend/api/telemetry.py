@@ -13,6 +13,8 @@ from fastapi import APIRouter, HTTPException, Query
 import fastf1
 import pandas as pd
 import numpy as np
+import httpx
+import json
 
 from backend.pipeline.ingest import fetch_telemetry, _init_fastf1
 
@@ -146,3 +148,88 @@ async def get_top_speeds(
     except Exception as exc:
         logger.error("Top speeds fetch failed: %s", exc, exc_info=True)
         raise HTTPException(500, f"Failed to fetch top speeds: {exc}")
+
+
+@router.get("/sessions/{session_key}/radio")
+async def get_team_radio(session_key: str):
+    """
+    Fetch and parse the TeamRadio.jsonStream from F1 Live Timing API.
+    Returns a list of radio messages with full audio URLs, enriched with driver info.
+    """
+    try:
+        parts = session_key.split("_")
+        year = int(parts[0])
+        round_number = int(parts[1])
+        session_type = parts[2]
+    except (ValueError, IndexError):
+        raise HTTPException(400, f"Invalid session_key format: {session_key}")
+
+    try:
+        _init_fastf1()
+        session = fastf1.get_session(year, round_number, session_type)
+        session.load(telemetry=False, laps=False, weather=False, messages=False)
+
+        api_path = session.api_path
+        if not api_path:
+            raise ValueError("No api_path available for this session.")
+
+        base_url = "https://livetiming.formula1.com"
+        url = f"{base_url}{api_path}TeamRadio.jsonStream"
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+
+        lines = resp.text.strip().split('\n')
+        raw_radios = []
+        for line in lines:
+            if not line.strip(): continue
+            idx = line.find('{')
+            if idx == -1: continue
+            json_str = line[idx:]
+            try:
+                data = json.loads(json_str)
+                captures = data.get("Captures", [])
+                if isinstance(captures, list):
+                    raw_radios.extend(captures)
+                elif isinstance(captures, dict):
+                    raw_radios.extend(captures.values())
+            except Exception as e:
+                logger.warning(f"Failed to parse radio line: {e}")
+
+        # Enrich with driver abbreviation and color
+        enriched_radios = []
+        for r in raw_radios:
+            driver_num = str(r.get("RacingNumber", ""))
+            try:
+                driver_info = session.get_driver(driver_num)
+                driver_abbr = driver_info.get("Abbreviation", driver_num)
+                team_color = driver_info.get("TeamColor", "")
+            except Exception:
+                driver_abbr = driver_num
+                team_color = ""
+
+            # Ensure team_color has # prefix if it exists
+            if team_color and not team_color.startswith('#'):
+                team_color = f"#{team_color}"
+
+            audio_url = f"{base_url}{api_path}{r.get('Path')}"
+            
+            enriched_radios.append({
+                "utc": r.get("Utc"),
+                "driver": driver_abbr,
+                "driver_number": driver_num,
+                "team_color": team_color,
+                "audio_url": audio_url
+            })
+
+        # Sort by UTC time descending
+        enriched_radios.sort(key=lambda x: x["utc"] or "", reverse=True)
+
+        return {
+            "session_key": session_key,
+            "data": enriched_radios
+        }
+    except Exception as exc:
+        logger.error("Team radio fetch failed: %s", exc, exc_info=True)
+        raise HTTPException(500, f"Failed to fetch team radio: {exc}")

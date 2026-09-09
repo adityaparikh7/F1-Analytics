@@ -144,6 +144,14 @@ PANEL_CATALOGUE = [
         "defaultSize": {"w": 6, "h": 4},
         "minSize": {"w": 4, "h": 3},
     },
+    {
+        "id": "team-radio",
+        "title": "Team Radio",
+        "category": "session",
+        "description": "Latest team radio communications with audio playback.",
+        "defaultSize": {"w": 3, "h": 4},
+        "minSize": {"w": 2, "h": 3},
+    },
 ]
 
 
