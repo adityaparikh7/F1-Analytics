@@ -33,7 +33,7 @@
    ```
 3. Run the API server:
    ```bash
-   python -m uvicorn backend.api.main:app --reload
+   python -m uvicorn backend.api.main:app --port 8000 --reload
    ```
    *Note: The server will automatically initialise the DuckDB schema on startup via lifespan events.*
 
