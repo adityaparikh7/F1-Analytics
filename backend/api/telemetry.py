@@ -16,7 +16,7 @@ import numpy as np
 import httpx
 import json
 
-from backend.pipeline.ingest import fetch_telemetry, _init_fastf1
+from backend.pipeline.ingest import fetch_telemetry, fetch_car_performance, _init_fastf1
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,34 @@ async def get_top_speeds(
     except Exception as exc:
         logger.error("Top speeds fetch failed: %s", exc, exc_info=True)
         raise HTTPException(500, f"Failed to fetch top speeds: {exc}")
+
+
+@router.get("/sessions/{session_key}/car-performance")
+async def get_car_performance(session_key: str):
+    """
+    Compute comprehensive car performance metrics for all drivers in a session.
+
+    Loads telemetry once and derives driving style, corner speeds, aero metrics,
+    sector times, and braking/traction data for every driver.
+    """
+    try:
+        parts = session_key.split("_")
+        year = int(parts[0])
+        round_number = int(parts[1])
+        session_type = parts[2]
+    except (ValueError, IndexError):
+        raise HTTPException(400, f"Invalid session_key format: {session_key}")
+
+    try:
+        result = fetch_car_performance(
+            year=year,
+            round_number=round_number,
+            session_type=session_type,
+        )
+        return result
+    except Exception as exc:
+        logger.error("Car performance fetch failed: %s", exc, exc_info=True)
+        raise HTTPException(500, f"Failed to compute car performance: {exc}")
 
 
 @router.get("/sessions/{session_key}/radio")

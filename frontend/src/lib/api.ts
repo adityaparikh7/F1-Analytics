@@ -209,6 +209,53 @@ export interface PanelCatalogueItem {
   minSize: { w: number; h: number };
 }
 
+export interface DrivingStyle {
+  full_throttle: number;
+  braking: number;
+  coasting: number;
+}
+
+export interface CornerSpeed {
+  corner: number;
+  apex_speed: number | null;
+}
+
+export interface AeroMetrics {
+  mean_speed: number;
+  top_speed: number;
+  avg_efficiency: number;
+}
+
+export interface SectorTimes {
+  s1: number | null;
+  s2: number | null;
+  s3: number | null;
+}
+
+export interface BrakingMetrics {
+  brake_pct: number;
+  avg_brake_speed: number;
+  traction_pct: number;
+}
+
+export interface DriverPerformance {
+  driver: string;
+  driver_number: number;
+  team: string;
+  position: number | null;
+  driving_style: DrivingStyle;
+  corner_speeds: CornerSpeed[];
+  aero: AeroMetrics;
+  sectors: SectorTimes;
+  braking: BrakingMetrics;
+}
+
+export interface CarPerformanceResponse {
+  drivers: DriverPerformance[];
+  corners: CornerData[];
+  best_sectors: SectorTimes;
+}
+
 // ── API Functions ───────────────────────────────────────────────────
 
 export const api = {
@@ -252,6 +299,9 @@ export const api = {
 
   getCircuitInfo: (key: string) =>
     request<CornerData[]>(`/sessions/${key}/circuit`),
+
+  getCarPerformance: (key: string) =>
+    request<CarPerformanceResponse>(`/sessions/${key}/car-performance`),
 
   getRaceControlMessages: (key: string) =>
     request<RaceControlMessage[]>(`/sessions/${key}/race-control-messages`),

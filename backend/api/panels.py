@@ -152,6 +152,14 @@ PANEL_CATALOGUE = [
         "defaultSize": {"w": 3, "h": 4},
         "minSize": {"w": 2, "h": 3},
     },
+    {
+        "id": "car-performance",
+        "title": "Car Performance",
+        "category": "performance",
+        "description": "Compare all drivers and teams across driving style, corner speeds, top speeds, aero efficiency, sectors, and braking — unified performance analysis.",
+        "defaultSize": {"w": 12, "h": 6},
+        "minSize": {"w": 6, "h": 4},
+    },
 ]
 
 

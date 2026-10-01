@@ -461,6 +461,263 @@ def fetch_circuit_info(
         logger.warning("Failed to fetch circuit info: %s", exc)
         return []
 
+
+# ── Car Performance Analysis ──────────────────────────────────────────────
+
+def fetch_car_performance(
+    year: int,
+    round_number: int | None = None,
+    event: str | None = None,
+    session_type: str = "R",
+) -> dict:
+    """
+    Compute comprehensive car performance metrics for ALL drivers in a session.
+
+    Loads the FastF1 session once and derives per-driver:
+    - Driving style (throttle/brake/coasting %)
+    - Corner apex speeds (min speed within ±150m of each corner)
+    - Aero metrics (mean speed, top speed, aero efficiency)
+    - Sector times (best S1, S2, S3)
+    - Braking & traction metrics
+    """
+    _init_fastf1()
+
+    identifier = round_number if round_number is not None else event
+    session = fastf1.get_session(year, identifier, session_type)
+    session.load(laps=True, telemetry=True, weather=False, messages=False)
+
+    # ── Circuit corner data ──────────────────────────────────────────
+    corners_list: list[dict] = []
+    try:
+        circuit_info = session.get_circuit_info()
+        corners_df = circuit_info.corners
+        if not corners_df.empty:
+            for _, c in corners_df.iterrows():
+                corners_list.append({
+                    "number": int(c["Number"]) if pd.notna(c.get("Number")) else 0,
+                    "letter": str(c.get("Letter", "")) if pd.notna(c.get("Letter")) else None,
+                    "distance": float(c["Distance"]) if pd.notna(c.get("Distance")) else None,
+                    "angle": float(c["Angle"]) if pd.notna(c.get("Angle")) else None,
+                })
+    except Exception as exc:
+        logger.warning("Failed to fetch circuit corners: %s", exc)
+
+    # ── Get session results for position/team info ───────────────────
+    results_map: dict[str, dict] = {}
+    try:
+        results = session.results
+        if results is not None and not results.empty:
+            for _, row in results.iterrows():
+                abbr = row.get("Abbreviation", "")
+                if abbr:
+                    results_map[abbr] = {
+                        "position": int(row["Position"]) if pd.notna(row.get("Position")) else None,
+                        "team": str(row.get("TeamName", "")) if pd.notna(row.get("TeamName")) else "",
+                        "driver_number": int(row["DriverNumber"]) if pd.notna(row.get("DriverNumber")) else 0,
+                    }
+    except Exception as exc:
+        logger.warning("Failed to read session results: %s", exc)
+
+    # ── Process each driver ──────────────────────────────────────────
+    drivers_data: list[dict] = []
+    global_best_s1: float | None = None
+    global_best_s2: float | None = None
+    global_best_s3: float | None = None
+
+    for drv in session.drivers:
+        try:
+            driver_laps = session.laps.pick_drivers(drv)
+            if driver_laps.empty:
+                continue
+
+            info = session.get_driver(drv)
+            abbr = info.get("Abbreviation", drv)
+            team = info.get("TeamName", results_map.get(abbr, {}).get("team", ""))
+            driver_number = int(info.get("DriverNumber", 0))
+            position = results_map.get(abbr, {}).get("position")
+
+            # Pick fastest lap
+            try:
+                fastest_lap = driver_laps.pick_fastest()
+            except Exception:
+                continue
+
+            if fastest_lap is None or (hasattr(fastest_lap, 'empty') and fastest_lap.empty):
+                continue
+
+            # Get telemetry for fastest lap
+            try:
+                telemetry = fastest_lap.get_telemetry()
+            except Exception:
+                try:
+                    telemetry = fastest_lap.get_car_data().add_distance()
+                except Exception:
+                    continue
+
+            if telemetry is None or telemetry.empty:
+                continue
+
+            speeds = telemetry["Speed"].values if "Speed" in telemetry.columns else np.array([])
+            throttles = telemetry["Throttle"].values if "Throttle" in telemetry.columns else np.array([])
+            brakes = telemetry["Brake"].values if "Brake" in telemetry.columns else np.array([])
+            distances = telemetry["Distance"].values if "Distance" in telemetry.columns else np.array([])
+
+            # ── Driving Style ────────────────────────────────────────
+            total_valid = 0
+            throttle_count = 0
+            brake_count = 0
+            for i in range(len(speeds)):
+                t_val = throttles[i] if i < len(throttles) else None
+                b_val = brakes[i] if i < len(brakes) else None
+                if t_val is None or b_val is None or np.isnan(t_val) or np.isnan(b_val):
+                    continue
+                total_valid += 1
+                if t_val >= 95:
+                    throttle_count += 1
+                if b_val >= 5:
+                    brake_count += 1
+
+            if total_valid > 0:
+                ft = (throttle_count / total_valid) * 100
+                br = (brake_count / total_valid) * 100
+                coast = max(0.0, 100.0 - ft - br)
+            else:
+                ft = br = coast = 0.0
+
+            driving_style = {
+                "full_throttle": round(ft, 1),
+                "braking": round(br, 1),
+                "coasting": round(coast, 1),
+            }
+
+            # ── Corner Apex Speeds ───────────────────────────────────
+            corner_speeds: list[dict] = []
+            search_range = 150.0  # meters
+            for corner in corners_list:
+                cdist = corner.get("distance")
+                if cdist is None:
+                    corner_speeds.append({"corner": corner["number"], "apex_speed": None})
+                    continue
+
+                # Find telemetry points within ±150m of corner
+                mask = np.abs(distances - cdist) < search_range
+                nearby_speeds = speeds[mask]
+                # Filter out NaN and zero
+                nearby_speeds = nearby_speeds[np.isfinite(nearby_speeds) & (nearby_speeds > 0)]
+
+                if len(nearby_speeds) > 0:
+                    apex = float(np.min(nearby_speeds))
+                else:
+                    apex = None
+
+                corner_speeds.append({"corner": corner["number"], "apex_speed": round(apex, 1) if apex else None})
+
+            # ── Aero Metrics ─────────────────────────────────────────
+            valid_speeds = speeds[np.isfinite(speeds) & (speeds > 0)]
+            mean_speed = float(np.mean(valid_speeds)) if len(valid_speeds) > 0 else 0.0
+            top_speed = float(np.max(valid_speeds)) if len(valid_speeds) > 0 else 0.0
+
+            # Aero efficiency: speed / max(throttle, 1)
+            efficiency_vals = []
+            for i in range(len(speeds)):
+                s = speeds[i] if i < len(speeds) else 0
+                t = throttles[i] if i < len(throttles) else 0
+                if np.isfinite(s) and np.isfinite(t) and s > 0:
+                    efficiency_vals.append(s / max(t, 1.0))
+            avg_efficiency = float(np.mean(efficiency_vals)) if efficiency_vals else 0.0
+
+            aero = {
+                "mean_speed": round(mean_speed, 1),
+                "top_speed": round(top_speed, 1),
+                "avg_efficiency": round(avg_efficiency, 2),
+            }
+
+            # ── Sector Times ─────────────────────────────────────────
+            # Get best sector times across all laps for this driver
+            s1_times = pd.to_numeric(
+                driver_laps["Sector1Time"].apply(lambda x: x.total_seconds() if pd.notna(x) else np.nan),
+                errors="coerce",
+            )
+            s2_times = pd.to_numeric(
+                driver_laps["Sector2Time"].apply(lambda x: x.total_seconds() if pd.notna(x) else np.nan),
+                errors="coerce",
+            )
+            s3_times = pd.to_numeric(
+                driver_laps["Sector3Time"].apply(lambda x: x.total_seconds() if pd.notna(x) else np.nan),
+                errors="coerce",
+            )
+
+            best_s1 = float(s1_times.min()) if s1_times.notna().any() else None
+            best_s2 = float(s2_times.min()) if s2_times.notna().any() else None
+            best_s3 = float(s3_times.min()) if s3_times.notna().any() else None
+
+            # Track global bests
+            if best_s1 is not None and (global_best_s1 is None or best_s1 < global_best_s1):
+                global_best_s1 = best_s1
+            if best_s2 is not None and (global_best_s2 is None or best_s2 < global_best_s2):
+                global_best_s2 = best_s2
+            if best_s3 is not None and (global_best_s3 is None or best_s3 < global_best_s3):
+                global_best_s3 = best_s3
+
+            sectors = {
+                "s1": round(best_s1, 3) if best_s1 is not None else None,
+                "s2": round(best_s2, 3) if best_s2 is not None else None,
+                "s3": round(best_s3, 3) if best_s3 is not None else None,
+            }
+
+            # ── Braking & Traction Metrics ───────────────────────────
+            brake_samples = 0
+            traction_samples = 0
+            brake_speed_sum = 0.0
+            for i in range(len(speeds)):
+                s = speeds[i] if i < len(speeds) else 0
+                t_val = throttles[i] if i < len(throttles) else 0
+                b_val = brakes[i] if i < len(brakes) else 0
+                if not (np.isfinite(s) and np.isfinite(t_val) and np.isfinite(b_val)):
+                    continue
+                if b_val >= 5:
+                    brake_samples += 1
+                    brake_speed_sum += s
+                # Traction zone: partial throttle (5-95%), speed < 150 km/h (corner exit)
+                if 5 <= t_val < 95 and s < 150:
+                    traction_samples += 1
+
+            braking_data = {
+                "brake_pct": round((brake_samples / total_valid) * 100, 1) if total_valid > 0 else 0.0,
+                "avg_brake_speed": round(brake_speed_sum / brake_samples, 1) if brake_samples > 0 else 0.0,
+                "traction_pct": round((traction_samples / total_valid) * 100, 1) if total_valid > 0 else 0.0,
+            }
+
+            drivers_data.append({
+                "driver": abbr,
+                "driver_number": driver_number,
+                "team": team,
+                "position": position,
+                "driving_style": driving_style,
+                "corner_speeds": corner_speeds,
+                "aero": aero,
+                "sectors": sectors,
+                "braking": braking_data,
+            })
+
+        except Exception as exc:
+            logger.warning("Failed to process driver %s: %s", drv, exc)
+            continue
+
+    # Sort by position (None positions last)
+    drivers_data.sort(key=lambda d: d["position"] if d["position"] is not None else 999)
+
+    return {
+        "drivers": drivers_data,
+        "corners": corners_list,
+        "best_sectors": {
+            "s1": round(global_best_s1, 3) if global_best_s1 is not None else None,
+            "s2": round(global_best_s2, 3) if global_best_s2 is not None else None,
+            "s3": round(global_best_s3, 3) if global_best_s3 is not None else None,
+        },
+    }
+
+
 # ── Auto Ingestion ─────────────────────────────────────────────────────────
 
 def sync_season_sessions(year: int) -> None:
