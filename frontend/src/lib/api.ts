@@ -84,6 +84,131 @@ export interface StintData {
   best_lap_time: number | null;
 }
 
+// ── Tyre degradation ────────────────────────────────────────────────
+
+/**
+ * Degradation rate for one stint.
+ *
+ * `s_per_lap` is a model-agnostic finite difference of the fitted curve across
+ * [`window_lo`, `window_hi`], never a raw model coefficient — a coefficient means something
+ * different in each model family and is not comparable across them.
+ *
+ * Two flags gate how this may be displayed, and both matter:
+ *
+ * - `window_source` is `'nominal'` when the stint spanned tyre life 5–15, `'observed'` when
+ *   it was measured over the stint's own shorter range (most soft stints). Never compare a
+ *   nominal figure with an observed one.
+ * - `significant` is false when the rate is within two standard errors of zero, i.e. the
+ *   stint shows no degradation distinguishable from a flat line. Do not rank or headline
+ *   these: a noisy fit yields an extreme slope, so unfiltered they sort to the top.
+ */
+export interface TyreDegradation {
+  s_per_lap: number | null;
+  se_s_per_lap: number | null;
+  significant: boolean;
+  window_lo: number;
+  window_hi: number;
+  window_source: 'nominal' | 'observed';
+  comparable: boolean;
+  s_per_lap_full_range: number | null;
+  full_range_lo: number;
+  full_range_hi: number;
+}
+
+export interface TyreDegradationLap {
+  lap_number: number;
+  tyre_life: number;
+  lap_time: number | null;
+  lap_time_corrected: number | null;
+  /** Dropped by the outlier filter before fitting; shown de-emphasised, not hidden. */
+  is_outlier: boolean;
+}
+
+export interface TyreDegradationCurvePoint {
+  tyre_life: number;
+  fit: number | null;
+  /** Null when the bootstrap was disabled or could not converge. */
+  lo: number | null;
+  hi: number | null;
+}
+
+export interface TyreDegradationStint {
+  driver: string;
+  driver_number: number | null;
+  team: string | null;
+  stint: number;
+  compound: string | null;
+  start_lap: number;
+  end_lap: number;
+  tyre_life_start: number;
+  tyre_life_end: number;
+  n_laps_total: number;
+  n_laps_clean: number;
+  n_laps_dropped_outlier: number;
+  model: string;
+  converged: boolean;
+  params: (number | null)[];
+  param_names: string[];
+  fit: { rss: number | null; rmse: number | null; r2: number | null; aicc: number | null };
+  model_comparison: {
+    model: string;
+    k: number;
+    aicc: number | null;
+    rmse: number | null;
+    selected: boolean;
+  }[];
+  degradation: TyreDegradation;
+  cliff_tyre_life: number | null;
+  anomaly: {
+    z_score: number | null;
+    is_anomalous: boolean;
+    /** e.g. "HARD:nominal" — encodes that peers share compound AND window source. */
+    peer_group: string;
+    peer_count: number;
+  } | null;
+  /** Present only when detail=full. */
+  laps?: TyreDegradationLap[];
+  /** Present only when detail=full. */
+  curve?: TyreDegradationCurvePoint[];
+}
+
+export interface TyreDegradationResponse {
+  session_key: string | null;
+  event_name?: string | null;
+  circuit_name?: string | null;
+  session_type?: string | null;
+  year?: number | null;
+  session_median_lap_time?: number | null;
+  config: {
+    min_laps: number;
+    models: string[];
+    detail: string;
+    corrections_applied: { name: string; [key: string]: unknown }[];
+    corrections_skipped: { name: string; reason: string }[];
+    nominal_window: number[];
+    bootstrap: boolean;
+    bootstrap_iterations: number;
+    n_clean_laps: number;
+    /**
+     * Field pace trend in s/lap: the sum of fuel burn-off, track evolution and the field's
+     * own average degradation. Near -0.055 on a typical race. A large divergence means
+     * absolute degradation for this session is biased, and `warnings` will say so.
+     */
+    field_trend_s_per_lap: number | null;
+  };
+  stints: TyreDegradationStint[];
+  compound_summary: {
+    compound: string;
+    n_stints: number;
+    n_stints_comparable: number;
+    window_sources: string[];
+    median_deg_s_per_lap: number | null;
+    p25_deg_s_per_lap: number | null;
+    p75_deg_s_per_lap: number | null;
+  }[];
+  warnings: string[];
+}
+
 export interface ResultData {
   session_key: string;
   driver: string;
@@ -236,6 +361,39 @@ export const api = {
 
   getStints: (key: string, driver?: string) =>
     request<StintData[]>(`/sessions/${key}/stints${driver ? `?driver=${driver}` : ''}`),
+
+  /**
+   * Per-stint tyre degradation.
+   *
+   * Pass `detail: 'summary'` for the dashboard panel — it omits per-lap points and curve
+   * grids and skips the bootstrap, so a full race costs ~100ms instead of ~3.8s. The
+   * analysis page uses `detail: 'full'`, ideally with a `driver` filter.
+   */
+  getTyreDegradation: (
+    key: string,
+    params?: {
+      driver?: string;
+      compound?: string;
+      detail?: 'full' | 'summary';
+      minLaps?: number;
+      bootstrap?: boolean;
+      corrections?: string;
+    }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.driver) searchParams.set('driver', params.driver);
+    if (params?.compound) searchParams.set('compound', params.compound);
+    if (params?.detail) searchParams.set('detail', params.detail);
+    if (params?.minLaps !== undefined) searchParams.set('min_laps', String(params.minLaps));
+    if (params?.bootstrap === false) searchParams.set('bootstrap', 'false');
+    // An empty string is meaningful here — it disables every correction — so test for
+    // undefined rather than falsiness.
+    if (params?.corrections !== undefined) searchParams.set('corrections', params.corrections);
+    const qs = searchParams.toString();
+    return request<TyreDegradationResponse>(
+      `/sessions/${key}/tyre-degradation${qs ? `?${qs}` : ''}`
+    );
+  },
 
   // Telemetry
   getTelemetry: (key: string, driver: string, lap: string = 'fastest', downsample?: number) => {

@@ -60,11 +60,13 @@ from backend.api.sessions import router as sessions_router  # noqa: E402
 from backend.api.standings import router as standings_router  # noqa: E402
 from backend.api.telemetry import router as telemetry_router  # noqa: E402
 from backend.api.panels import router as panels_router  # noqa: E402
+from backend.api.tyres import router as tyres_router  # noqa: E402
 
 app.include_router(sessions_router, prefix="/api")
 app.include_router(standings_router, prefix="/api")
 app.include_router(telemetry_router, prefix="/api")
 app.include_router(panels_router, prefix="/api")
+app.include_router(tyres_router, prefix="/api")
 
 
 @app.get("/api/health")

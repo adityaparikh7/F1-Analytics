@@ -159,6 +159,11 @@ export const COMPOUND_COLOURS: Record<string, string> = {
   'HARD': '#EBEBEB',
   'INTERMEDIATE': '#39B54A',
   'WET': '#0067FF',
+  // Pre-2019 compounds, still present for the 2018 season. Shaded towards the modern
+  // soft red by increasing softness, so a 2018 session reads consistently with the rest.
+  'SUPERSOFT': '#FF4D6D',
+  'ULTRASOFT': '#C026A8',
+  'HYPERSOFT': '#FF9EC4',
   'UNKNOWN': '#888890',
 };
 

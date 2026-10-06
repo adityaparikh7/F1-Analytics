@@ -20,11 +20,25 @@ const ConstructorStandingsPanel: React.FC<PanelProps> = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.getConstructorStandings(selectedYear)
-      .then(data => { setStandings(data); setLoading(false); })
-      .catch(err => { setError(err.message); setLoading(false); });
+    let cancelled = false;
+    // Re-fetch quietly when the tab regains focus: a race can be ingested (or its points
+    // backfilled) by the backend after this panel first loaded, and nothing else tells us.
+    const load = (initial: boolean) => {
+      if (initial) {
+        setLoading(true);
+        setError(null);
+      }
+      api.getConstructorStandings(selectedYear)
+        .then(data => { if (!cancelled) { setStandings(data); setLoading(false); } })
+        .catch(err => { if (!cancelled && initial) { setError(err.message); setLoading(false); } });
+    };
+    load(true);
+    const onFocus = () => load(false);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+    };
   }, [selectedYear]);
 
   if (loading) {
