@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "duckdb>=1.0",
     "pandas>=2.0",
+    "numpy>=1.26",
+    "scipy>=1.11",
     "pyarrow>=16.0",
     "apscheduler>=3.10,<4.0",
     "pydantic>=2.0",
@@ -22,6 +24,18 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.5.0",
 ]
+
+[tool.setuptools]
+# Dependencies only — this distribution deliberately ships no packages.
+#
+# The importable package is `backend` (see backend/__init__.py), whose parent is the repo
+# root, so the app and the tests are always run from the repo root as `backend.api.main`
+# (per CLAUDE.md). Letting setuptools auto-discover from this directory instead finds three
+# competing top-level packages — `api`, `db`, `pipeline` — and fails the build outright.
+# Declaring those three explicitly would install generic top-level names into site-packages
+# and still not provide the `backend.*` paths the code imports. So: install the dependencies
+# here, and let the repo root supply the package.
+packages = []
 
 [tool.ruff]
 line-length = 120

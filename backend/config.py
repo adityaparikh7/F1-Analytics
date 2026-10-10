@@ -15,6 +15,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CACHE_DIR = Path(os.getenv("FASTF1_CACHE_DIR", str(PROJECT_ROOT / "cache")))
 PARQUET_DIR = Path(os.getenv("PARQUET_DATA_DIR", str(PROJECT_ROOT / "data" / "parquet")))
 DUCKDB_PATH = Path(os.getenv("DUCKDB_PATH", str(PROJECT_ROOT / "data" / "pitwall.duckdb")))
+# Trained ML artifacts (tyre degradation pooled model). Lives under data/, which is
+# git-ignored, so artifacts stay local and are rebuilt by retraining rather than committed.
+MODELS_DIR = Path(os.getenv("MODELS_DIR", str(PROJECT_ROOT / "data" / "models")))
 
 # ── API ────────────────────────────────────────────────────────────────
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
@@ -35,5 +38,6 @@ PARQUET_STANDINGS_DIR = PARQUET_DIR / "standings"
 
 # ── Ensure directories exist ───────────────────────────────────────────
 for _dir in [CACHE_DIR, PARQUET_SESSIONS_DIR, PARQUET_LAPS_DIR,
-             PARQUET_TELEMETRY_DIR, PARQUET_RESULTS_DIR, PARQUET_STANDINGS_DIR]:
+             PARQUET_TELEMETRY_DIR, PARQUET_RESULTS_DIR, PARQUET_STANDINGS_DIR,
+             MODELS_DIR]:
     _dir.mkdir(parents=True, exist_ok=True)

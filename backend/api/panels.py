@@ -49,6 +49,14 @@ PANEL_CATALOGUE = [
         "minSize": {"w": 4, "h": 3},
     },
     {
+        "id": "championship",
+        "title": "Championship Battle",
+        "category": "session",
+        "description": "Title fight at a glance: points gap, who can still win, and simulated title odds.",
+        "defaultSize": {"w": 6, "h": 5},
+        "minSize": {"w": 4, "h": 3},
+    },
+    {
         "id": "telemetry-explorer",
         "title": "Telemetry Explorer",
         "category": "telemetry",
@@ -87,6 +95,14 @@ PANEL_CATALOGUE = [
         "description": "Tyre stint timeline — Gantt chart with compound colours and lap counts.",
         "defaultSize": {"w": 12, "h": 5},
         "minSize": {"w": 6, "h": 3},
+    },
+    {
+        "id": "tyre-degradation",
+        "title": "Tyre Degradation",
+        "category": "strategy",
+        "description": "Degradation rate per stint in s/lap, ranked. Expand for fitted curves.",
+        "defaultSize": {"w": 6, "h": 5},
+        "minSize": {"w": 4, "h": 3},
     },
     {
         "id": "top-speed-plot",

@@ -84,6 +84,131 @@ export interface StintData {
   best_lap_time: number | null;
 }
 
+// ── Tyre degradation ────────────────────────────────────────────────
+
+/**
+ * Degradation rate for one stint.
+ *
+ * `s_per_lap` is a model-agnostic finite difference of the fitted curve across
+ * [`window_lo`, `window_hi`], never a raw model coefficient — a coefficient means something
+ * different in each model family and is not comparable across them.
+ *
+ * Two flags gate how this may be displayed, and both matter:
+ *
+ * - `window_source` is `'nominal'` when the stint spanned tyre life 5–15, `'observed'` when
+ *   it was measured over the stint's own shorter range (most soft stints). Never compare a
+ *   nominal figure with an observed one.
+ * - `significant` is false when the rate is within two standard errors of zero, i.e. the
+ *   stint shows no degradation distinguishable from a flat line. Do not rank or headline
+ *   these: a noisy fit yields an extreme slope, so unfiltered they sort to the top.
+ */
+export interface TyreDegradation {
+  s_per_lap: number | null;
+  se_s_per_lap: number | null;
+  significant: boolean;
+  window_lo: number;
+  window_hi: number;
+  window_source: 'nominal' | 'observed';
+  comparable: boolean;
+  s_per_lap_full_range: number | null;
+  full_range_lo: number;
+  full_range_hi: number;
+}
+
+export interface TyreDegradationLap {
+  lap_number: number;
+  tyre_life: number;
+  lap_time: number | null;
+  lap_time_corrected: number | null;
+  /** Dropped by the outlier filter before fitting; shown de-emphasised, not hidden. */
+  is_outlier: boolean;
+}
+
+export interface TyreDegradationCurvePoint {
+  tyre_life: number;
+  fit: number | null;
+  /** Null when the bootstrap was disabled or could not converge. */
+  lo: number | null;
+  hi: number | null;
+}
+
+export interface TyreDegradationStint {
+  driver: string;
+  driver_number: number | null;
+  team: string | null;
+  stint: number;
+  compound: string | null;
+  start_lap: number;
+  end_lap: number;
+  tyre_life_start: number;
+  tyre_life_end: number;
+  n_laps_total: number;
+  n_laps_clean: number;
+  n_laps_dropped_outlier: number;
+  model: string;
+  converged: boolean;
+  params: (number | null)[];
+  param_names: string[];
+  fit: { rss: number | null; rmse: number | null; r2: number | null; aicc: number | null };
+  model_comparison: {
+    model: string;
+    k: number;
+    aicc: number | null;
+    rmse: number | null;
+    selected: boolean;
+  }[];
+  degradation: TyreDegradation;
+  cliff_tyre_life: number | null;
+  anomaly: {
+    z_score: number | null;
+    is_anomalous: boolean;
+    /** e.g. "HARD:nominal" — encodes that peers share compound AND window source. */
+    peer_group: string;
+    peer_count: number;
+  } | null;
+  /** Present only when detail=full. */
+  laps?: TyreDegradationLap[];
+  /** Present only when detail=full. */
+  curve?: TyreDegradationCurvePoint[];
+}
+
+export interface TyreDegradationResponse {
+  session_key: string | null;
+  event_name?: string | null;
+  circuit_name?: string | null;
+  session_type?: string | null;
+  year?: number | null;
+  session_median_lap_time?: number | null;
+  config: {
+    min_laps: number;
+    models: string[];
+    detail: string;
+    corrections_applied: { name: string; [key: string]: unknown }[];
+    corrections_skipped: { name: string; reason: string }[];
+    nominal_window: number[];
+    bootstrap: boolean;
+    bootstrap_iterations: number;
+    n_clean_laps: number;
+    /**
+     * Field pace trend in s/lap: the sum of fuel burn-off, track evolution and the field's
+     * own average degradation. Near -0.055 on a typical race. A large divergence means
+     * absolute degradation for this session is biased, and `warnings` will say so.
+     */
+    field_trend_s_per_lap: number | null;
+  };
+  stints: TyreDegradationStint[];
+  compound_summary: {
+    compound: string;
+    n_stints: number;
+    n_stints_comparable: number;
+    window_sources: string[];
+    median_deg_s_per_lap: number | null;
+    p25_deg_s_per_lap: number | null;
+    p75_deg_s_per_lap: number | null;
+  }[];
+  warnings: string[];
+}
+
 export interface ResultData {
   session_key: string;
   driver: string;
@@ -178,6 +303,130 @@ export interface ConstructorStanding {
   wins: number;
 }
 
+// ── Championship ────────────────────────────────────────────────────
+
+export interface ChampionshipRound {
+  round_number: number;
+  event_name: string;
+  has_sprint: boolean;
+  /** Run by the as-of point (the latest ingested round, unless rewound). */
+  completed: boolean;
+}
+
+export interface ChampionshipSession {
+  round_number: number;
+  session_type: 'R' | 'S';
+  event_name: string;
+}
+
+interface ChampionshipProgressionEntry {
+  /** Aligned with `round_numbers`; null before a driver's or team's first appearance. */
+  cumulative: (number | null)[];
+  positions: (number | null)[];
+  points: number;
+  wins: number;
+}
+
+export interface ChampionshipProgression {
+  year: number;
+  latest_round: number;
+  rounds: ChampionshipRound[];
+  /** Rounds that have results, which the cumulative arrays are aligned with. */
+  round_numbers: number[];
+  drivers: (ChampionshipProgressionEntry & { driver: string; team: string | null })[];
+  constructors: (ChampionshipProgressionEntry & { team: string })[];
+  warnings: string[];
+}
+
+export type ChampionshipStatus = 'clinched' | 'alive' | 'eliminated';
+
+export interface ChampionshipTrajectoryPoint {
+  round_number: number;
+  p10: number;
+  p50: number;
+  p90: number;
+}
+
+export interface ChampionshipOdds {
+  position: number;
+  points: number;
+  wins: number;
+  gap_to_leader: number;
+  /** False for a driver no longer on the grid: they keep their points but score no more. */
+  eligible: boolean;
+  max_possible: number;
+  status: ChampionshipStatus;
+  title_probability: number;
+  expected_points: number;
+  points_p10: number;
+  points_p90: number;
+  /** Probability of finishing the season P1, P2, … (up to P10). */
+  position_probabilities: number[];
+  /** Cumulative points after each remaining round. */
+  trajectory: ChampionshipTrajectoryPoint[];
+  /** What really happened, when the projection is a backtest. */
+  actual_points: number | null;
+  actual_position: number | null;
+}
+
+export interface ChampionshipDriverOdds extends ChampionshipOdds {
+  driver: string;
+  team: string | null;
+  form: { n_results: number; source: 'own' | 'pooled' | 'field' } | null;
+}
+
+export interface ChampionshipTeamOdds extends ChampionshipOdds {
+  team: string;
+}
+
+export interface ChampionshipPin {
+  round_number: number;
+  session_type: 'R' | 'S';
+  /** Abbreviation (VER) or car number (1). */
+  driver: string;
+  /** Finishing position; null is a DNF. */
+  position: number | null;
+}
+
+export interface ChampionshipProjection {
+  year: number;
+  as_of_round: number;
+  as_of_session: ChampionshipSession;
+  latest_round: number;
+  is_backtest: boolean;
+  is_scenario: boolean;
+  season_complete: boolean;
+  config: {
+    n_sims: number;
+    form_window: number;
+    decay: number;
+    noise_sd: number;
+    dnf_floor: number;
+    drift_sd: number;
+    seed: number;
+  };
+  points_system: { race: number[]; sprint: number[]; fastest_lap: number };
+  rounds: ChampionshipRound[];
+  remaining: (ChampionshipSession & { max_driver_points: number; max_team_points: number })[];
+  max_points_remaining: { driver: number; team: number };
+  earliest_clinch: {
+    drivers: ChampionshipSession | null;
+    constructors: ChampionshipSession | null;
+  };
+  pins: ChampionshipPin[];
+  drivers: ChampionshipDriverOdds[];
+  constructors: ChampionshipTeamOdds[];
+  warnings: string[];
+  method: { summary: string; calibration: string; caveats: string[] };
+}
+
+export interface ChampionshipOptions {
+  /** Project from this round; earlier than the latest ingested round replays a past point. */
+  asOfRound?: number;
+  nSims?: number;
+  formWindow?: number;
+}
+
 export interface CalendarEvent {
   year: number;
   round_number: number;
@@ -237,6 +486,39 @@ export const api = {
   getStints: (key: string, driver?: string) =>
     request<StintData[]>(`/sessions/${key}/stints${driver ? `?driver=${driver}` : ''}`),
 
+  /**
+   * Per-stint tyre degradation.
+   *
+   * Pass `detail: 'summary'` for the dashboard panel — it omits per-lap points and curve
+   * grids and skips the bootstrap, so a full race costs ~100ms instead of ~3.8s. The
+   * analysis page uses `detail: 'full'`, ideally with a `driver` filter.
+   */
+  getTyreDegradation: (
+    key: string,
+    params?: {
+      driver?: string;
+      compound?: string;
+      detail?: 'full' | 'summary';
+      minLaps?: number;
+      bootstrap?: boolean;
+      corrections?: string;
+    }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.driver) searchParams.set('driver', params.driver);
+    if (params?.compound) searchParams.set('compound', params.compound);
+    if (params?.detail) searchParams.set('detail', params.detail);
+    if (params?.minLaps !== undefined) searchParams.set('min_laps', String(params.minLaps));
+    if (params?.bootstrap === false) searchParams.set('bootstrap', 'false');
+    // An empty string is meaningful here — it disables every correction — so test for
+    // undefined rather than falsiness.
+    if (params?.corrections !== undefined) searchParams.set('corrections', params.corrections);
+    const qs = searchParams.toString();
+    return request<TyreDegradationResponse>(
+      `/sessions/${key}/tyre-degradation${qs ? `?${qs}` : ''}`
+    );
+  },
+
   // Telemetry
   getTelemetry: (key: string, driver: string, lap: string = 'fastest', downsample?: number) => {
     const params = new URLSearchParams({ driver, lap });
@@ -271,6 +553,34 @@ export const api = {
     if (round) params.set('round_number', String(round));
     return request<ConstructorStanding[]>(`/standings/constructors?${params}`);
   },
+
+  // Championship
+  getChampionshipProgression: (year: number) =>
+    request<ChampionshipProgression>(`/championship/progression?year=${year}`),
+
+  getChampionshipProjection: (year: number, options: ChampionshipOptions = {}) => {
+    const params = new URLSearchParams({ year: String(year) });
+    if (options.asOfRound) params.set('as_of_round', String(options.asOfRound));
+    if (options.nSims) params.set('n_sims', String(options.nSims));
+    if (options.formWindow) params.set('form_window', String(options.formWindow));
+    return request<ChampionshipProjection>(`/championship/projection?${params}`);
+  },
+
+  /**
+   * The projection with what-if results pinned. With the same options it shares the
+   * baseline's random draws, so any difference from it is caused by the pins alone.
+   */
+  simulateChampionship: (year: number, pins: ChampionshipPin[], options: ChampionshipOptions = {}) =>
+    request<ChampionshipProjection>('/championship/projection', {
+      method: 'POST',
+      body: JSON.stringify({
+        year,
+        as_of_round: options.asOfRound ?? null,
+        n_sims: options.nSims,
+        form_window: options.formWindow,
+        pins,
+      }),
+    }),
 
   // Calendar
   getCalendar: (year: number) =>

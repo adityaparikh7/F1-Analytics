@@ -13,6 +13,8 @@ from datetime import datetime
 import fastf1
 import numpy as np
 import pandas as pd
+import requests
+from fastf1.ergast.interface import BASE_URL as ERGAST_BASE_URL
 
 from backend.config import (
     CACHE_DIR,
@@ -106,6 +108,13 @@ def ingest_session(
     _store_results(session, session_key)
     _progress("Results stored")
 
+    # Tyre degradation payloads are cached on the assumption that a session's laps are
+    # immutable once ingested. A re-ingest breaks that assumption, so drop the cache here.
+    # Imported locally to keep the pipeline free of any dependency on the API layer.
+    from backend.api.tyres import clear_cache as clear_tyre_cache
+
+    clear_tyre_cache()
+
     _progress(f"Ingestion complete: {session_key}")
     return session_key
 
@@ -188,6 +197,75 @@ def _store_laps(session, session_key: str):
     conn = get_connection()
     conn.execute(f"DELETE FROM laps WHERE session_key = '{session_key}'")
     conn.execute("INSERT INTO laps SELECT * FROM read_parquet(?)", [str(parquet_path)])
+
+
+_POINTS_SESSION_ENDPOINT = {"R": "results", "S": "sprint"}
+
+
+def _fetch_published_points(year: int, round_number: int, session_type: str) -> dict[str, float]:
+    """Driver abbreviation -> championship points as published by Jolpica (Ergast).
+
+    Deliberately bypasses FastF1's HTTP cache: that cache keeps responses for 12 hours, so an
+    empty "not published yet" reply fetched right after the flag would be served back on every
+    re-ingest until it expired. Returns {} when the points are not published (yet) or on error.
+    """
+    endpoint = _POINTS_SESSION_ENDPOINT.get(session_type)
+    if endpoint is None:
+        return {}
+    url = f"{ERGAST_BASE_URL}/{year}/{round_number}/{endpoint}.json"
+    try:
+        resp = requests.get(url, timeout=20)
+        resp.raise_for_status()
+        races = resp.json()["MRData"]["RaceTable"]["Races"]
+    except Exception as exc:
+        logger.warning("Could not fetch published points from %s: %s", url, exc)
+        return {}
+    if not races:
+        return {}
+    rows = races[0].get("Results") or races[0].get("SprintResults") or []
+    return {r["Driver"]["code"]: float(r["points"]) for r in rows if r.get("Driver", {}).get("code")}
+
+
+def refresh_missing_points(year: int) -> list[str]:
+    """Backfill points for already-ingested Race/Sprint sessions that were stored without any.
+
+    FastF1 only has points once Jolpica has published the classification, which can lag the
+    session by hours. A session ingested before then is stored with 0 points and is never
+    revisited by `sync_season_sessions` (its key already exists), freezing the standings.
+    Returns the session keys that were updated.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT s.session_key, s.round_number, s.session_type
+        FROM sessions s
+        JOIN results r ON r.session_key = s.session_key
+        WHERE s.year = ? AND s.session_type IN ('R', 'S')
+        GROUP BY s.session_key, s.round_number, s.session_type
+        HAVING SUM(COALESCE(r.points, 0)) = 0
+        """,
+        [year],
+    ).fetchall()
+
+    updated: list[str] = []
+    for session_key, round_number, session_type in rows:
+        points = _fetch_published_points(year, round_number, session_type)
+        if not points or sum(points.values()) == 0:
+            logger.info("Points for %s not published yet", session_key)
+            continue
+        for driver, pts in points.items():
+            conn.execute(
+                "UPDATE results SET points = ? WHERE session_key = ? AND driver = ?",
+                [pts, session_key, driver],
+            )
+        parquet_path = PARQUET_RESULTS_DIR / f"{session_key}.parquet"
+        conn.execute(
+            f"COPY (SELECT * FROM results WHERE session_key = ?) TO '{parquet_path}' (FORMAT PARQUET)",
+            [session_key],
+        )
+        logger.info("Backfilled points for %s", session_key)
+        updated.append(session_key)
+    return updated
 
 
 def _store_results(session, session_key: str):
@@ -320,6 +398,16 @@ def _store_results(session, session_key: str):
                 else:
                     gaps.append(None)
             df["gap_to_leader"] = gaps
+
+    # FastF1 reports no points until Jolpica has published the classification. A classified
+    # Race/Sprint always awards points to P1, so an all-zero column means "not available yet".
+    if session_type in _POINTS_SESSION_ENDPOINT and df["points"].fillna(0).sum() == 0:
+        year, round_number = (int(part) for part in session_key.split("_")[:2])
+        published = _fetch_published_points(year, round_number, session_type)
+        if published:
+            df["points"] = df["driver"].map(published).fillna(0.0)
+        else:
+            logger.warning("No points published yet for %s; will be backfilled on next sync", session_key)
 
     df = df.replace({np.nan: None})
 
@@ -485,6 +573,13 @@ def sync_season_sessions(year: int) -> None:
         "Race": "R",
     }
     
+    # Sessions ingested before Jolpica published the classification have no points; fix them
+    # up here, since the missing-session loop below skips any key that already exists.
+    try:
+        refresh_missing_points(year)
+    except Exception as e:
+        logger.error("Failed to backfill points for %s: %s", year, e)
+
     # Pre-fetch all ingested session keys to avoid repeated queries
     try:
         existing_keys = {row[0] for row in conn.execute("SELECT session_key FROM sessions").fetchall()}

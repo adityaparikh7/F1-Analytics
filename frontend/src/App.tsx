@@ -13,6 +13,8 @@ import { Routes, Route } from 'react-router-dom';
 import RacePacePage from './pages/RacePacePage';
 import TelemetryPage from './pages/TelemetryPage';
 import TeamRadioPage from './pages/TeamRadioPage';
+import TyreDegradationPage from './pages/TyreDegradationPage';
+import ChampionshipPage from './pages/ChampionshipPage';
 
 // ── Register all panels ─────────────────────────────────────────────
 // Each import triggers the registerPanel() call in the module
@@ -33,6 +35,8 @@ import './panels/driving-phases-plot/DrivingPhasesPlotPanel';
 import './panels/aero-map/AeroMapPanel';
 import './panels/race-control/RaceControlPanel';
 import './panels/team-radio/TeamRadioPanel';
+import './panels/tyre-degradation/TyreDegradationPanel';
+import './panels/championship/ChampionshipPanel';
 
 const App: React.FC = () => {
   return (
@@ -45,6 +49,8 @@ const App: React.FC = () => {
           <Route path="/race-pace" element={<RacePacePage />} />
           <Route path="/telemetry" element={<TelemetryPage />} />
           <Route path="/team-radio" element={<TeamRadioPage />} />
+          <Route path="/tyre-degradation" element={<TyreDegradationPage />} />
+          <Route path="/championship" element={<ChampionshipPage />} />
         </Routes>
       </div>
       <CatalogueDrawer />
