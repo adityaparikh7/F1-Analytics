@@ -133,3 +133,21 @@ export function getPaceRating(delta: number): string {
 export function getProperLapThreshold(fastestLap: number): number {
   return fastestLap * 1.07;
 }
+
+/**
+ * Championship title odds: "37.4%", ">99.9%", "<0.1%", or "Clinched" / "Champion".
+ *
+ * Mathematical certainty is stated as such; a simulated 100% that is not yet mathematically
+ * certain is shown as ">99.9%", never "100%".
+ */
+export function formatTitleOdds(
+  probability: number,
+  status: 'clinched' | 'alive' | 'eliminated',
+  seasonComplete = false
+): string {
+  if (status === 'clinched') return seasonComplete ? 'Champion' : 'Clinched';
+  if (status === 'eliminated') return 'Out';
+  if (probability >= 0.9995) return '>99.9%';
+  if (probability < 0.0005) return '<0.1%';
+  return `${(probability * 100).toFixed(1)}%`;
+}

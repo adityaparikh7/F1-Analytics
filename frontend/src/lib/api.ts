@@ -303,6 +303,130 @@ export interface ConstructorStanding {
   wins: number;
 }
 
+// ── Championship ────────────────────────────────────────────────────
+
+export interface ChampionshipRound {
+  round_number: number;
+  event_name: string;
+  has_sprint: boolean;
+  /** Run by the as-of point (the latest ingested round, unless rewound). */
+  completed: boolean;
+}
+
+export interface ChampionshipSession {
+  round_number: number;
+  session_type: 'R' | 'S';
+  event_name: string;
+}
+
+interface ChampionshipProgressionEntry {
+  /** Aligned with `round_numbers`; null before a driver's or team's first appearance. */
+  cumulative: (number | null)[];
+  positions: (number | null)[];
+  points: number;
+  wins: number;
+}
+
+export interface ChampionshipProgression {
+  year: number;
+  latest_round: number;
+  rounds: ChampionshipRound[];
+  /** Rounds that have results, which the cumulative arrays are aligned with. */
+  round_numbers: number[];
+  drivers: (ChampionshipProgressionEntry & { driver: string; team: string | null })[];
+  constructors: (ChampionshipProgressionEntry & { team: string })[];
+  warnings: string[];
+}
+
+export type ChampionshipStatus = 'clinched' | 'alive' | 'eliminated';
+
+export interface ChampionshipTrajectoryPoint {
+  round_number: number;
+  p10: number;
+  p50: number;
+  p90: number;
+}
+
+export interface ChampionshipOdds {
+  position: number;
+  points: number;
+  wins: number;
+  gap_to_leader: number;
+  /** False for a driver no longer on the grid: they keep their points but score no more. */
+  eligible: boolean;
+  max_possible: number;
+  status: ChampionshipStatus;
+  title_probability: number;
+  expected_points: number;
+  points_p10: number;
+  points_p90: number;
+  /** Probability of finishing the season P1, P2, … (up to P10). */
+  position_probabilities: number[];
+  /** Cumulative points after each remaining round. */
+  trajectory: ChampionshipTrajectoryPoint[];
+  /** What really happened, when the projection is a backtest. */
+  actual_points: number | null;
+  actual_position: number | null;
+}
+
+export interface ChampionshipDriverOdds extends ChampionshipOdds {
+  driver: string;
+  team: string | null;
+  form: { n_results: number; source: 'own' | 'pooled' | 'field' } | null;
+}
+
+export interface ChampionshipTeamOdds extends ChampionshipOdds {
+  team: string;
+}
+
+export interface ChampionshipPin {
+  round_number: number;
+  session_type: 'R' | 'S';
+  /** Abbreviation (VER) or car number (1). */
+  driver: string;
+  /** Finishing position; null is a DNF. */
+  position: number | null;
+}
+
+export interface ChampionshipProjection {
+  year: number;
+  as_of_round: number;
+  as_of_session: ChampionshipSession;
+  latest_round: number;
+  is_backtest: boolean;
+  is_scenario: boolean;
+  season_complete: boolean;
+  config: {
+    n_sims: number;
+    form_window: number;
+    decay: number;
+    noise_sd: number;
+    dnf_floor: number;
+    drift_sd: number;
+    seed: number;
+  };
+  points_system: { race: number[]; sprint: number[]; fastest_lap: number };
+  rounds: ChampionshipRound[];
+  remaining: (ChampionshipSession & { max_driver_points: number; max_team_points: number })[];
+  max_points_remaining: { driver: number; team: number };
+  earliest_clinch: {
+    drivers: ChampionshipSession | null;
+    constructors: ChampionshipSession | null;
+  };
+  pins: ChampionshipPin[];
+  drivers: ChampionshipDriverOdds[];
+  constructors: ChampionshipTeamOdds[];
+  warnings: string[];
+  method: { summary: string; calibration: string; caveats: string[] };
+}
+
+export interface ChampionshipOptions {
+  /** Project from this round; earlier than the latest ingested round replays a past point. */
+  asOfRound?: number;
+  nSims?: number;
+  formWindow?: number;
+}
+
 export interface CalendarEvent {
   year: number;
   round_number: number;
@@ -429,6 +553,34 @@ export const api = {
     if (round) params.set('round_number', String(round));
     return request<ConstructorStanding[]>(`/standings/constructors?${params}`);
   },
+
+  // Championship
+  getChampionshipProgression: (year: number) =>
+    request<ChampionshipProgression>(`/championship/progression?year=${year}`),
+
+  getChampionshipProjection: (year: number, options: ChampionshipOptions = {}) => {
+    const params = new URLSearchParams({ year: String(year) });
+    if (options.asOfRound) params.set('as_of_round', String(options.asOfRound));
+    if (options.nSims) params.set('n_sims', String(options.nSims));
+    if (options.formWindow) params.set('form_window', String(options.formWindow));
+    return request<ChampionshipProjection>(`/championship/projection?${params}`);
+  },
+
+  /**
+   * The projection with what-if results pinned. With the same options it shares the
+   * baseline's random draws, so any difference from it is caused by the pins alone.
+   */
+  simulateChampionship: (year: number, pins: ChampionshipPin[], options: ChampionshipOptions = {}) =>
+    request<ChampionshipProjection>('/championship/projection', {
+      method: 'POST',
+      body: JSON.stringify({
+        year,
+        as_of_round: options.asOfRound ?? null,
+        n_sims: options.nSims,
+        form_window: options.formWindow,
+        pins,
+      }),
+    }),
 
   // Calendar
   getCalendar: (year: number) =>

@@ -49,6 +49,14 @@ PANEL_CATALOGUE = [
         "minSize": {"w": 4, "h": 3},
     },
     {
+        "id": "championship",
+        "title": "Championship Battle",
+        "category": "session",
+        "description": "Title fight at a glance: points gap, who can still win, and simulated title odds.",
+        "defaultSize": {"w": 6, "h": 5},
+        "minSize": {"w": 4, "h": 3},
+    },
+    {
         "id": "telemetry-explorer",
         "title": "Telemetry Explorer",
         "category": "telemetry",

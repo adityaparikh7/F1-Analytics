@@ -351,6 +351,35 @@ def get_constructor_standings(year: int, round_number: int | None = None) -> lis
     return _fetchall_dicts(sql, [round_number, year, year])
 
 
+# ── Championship ───────────────────────────────────────────────────────
+
+def get_season_results(year: int) -> pd.DataFrame:
+    """
+    Every Race and Sprint result row of one season, by round, Sprint before Race.
+
+    Returns a frame rather than dicts because the championship model aggregates it several
+    ways — per round, per driver, per team. Points are the published figures (see
+    ``refresh_missing_points``), coalesced so a missing value counts as zero.
+    """
+    sql = """
+        SELECT
+            s.round_number,
+            s.session_type,
+            s.event_name,
+            r.driver,
+            r.driver_number,
+            r.team,
+            r.position,
+            r.status,
+            COALESCE(r.points, 0) AS points
+        FROM results r
+        JOIN sessions s ON r.session_key = s.session_key
+        WHERE s.year = ? AND s.session_type IN ('R', 'S')
+        ORDER BY s.round_number, s.session_type DESC, r.position
+    """
+    return _fetchdf(sql, [year])
+
+
 # ── Calendar ───────────────────────────────────────────────────────────
 
 def get_calendar(year: int) -> list[dict]:

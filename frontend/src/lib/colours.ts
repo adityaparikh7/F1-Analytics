@@ -151,6 +151,32 @@ export function adjustColorLightness(color: string, percent: number = 25): strin
   return `hsl(${hDeg}, ${sPct}%, ${newL}%)`;
 }
 
+/**
+ * The same colour at a given opacity, for translucent fills such as confidence bands.
+ *
+ * Accepts every format the maps above use — 3/4/6/8-digit hex and rgb()/rgba() — plus the
+ * hsl() that adjustColorLightness returns. Anything else is returned unchanged.
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const trimmed = color.trim().toLowerCase();
+
+  if (trimmed.startsWith('#')) {
+    const hex = trimmed.substring(1);
+    const full = hex.length <= 4 ? hex.split('').map(ch => ch + ch).join('') : hex;
+    const [r, g, b] = [0, 2, 4].map(i => parseInt(full.substring(i, i + 2), 16));
+    if ([r, g, b].some(Number.isNaN)) return color;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  const rgb = trimmed.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgb) return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`;
+
+  const hsl = trimmed.match(/^hsla?\(([\d.]+),\s*([\d.]+%),\s*([\d.]+%)/);
+  if (hsl) return `hsla(${hsl[1]}, ${hsl[2]}, ${hsl[3]}, ${alpha})`;
+
+  return color;
+}
+
 // ── Compound Colours ────────────────────────────────────────────────
 
 export const COMPOUND_COLOURS: Record<string, string> = {
