@@ -3,17 +3,24 @@
  */
 
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { Menu, Save, Plus } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Menu, Save, Plus, Play } from 'lucide-react';
 import { useSessionStore } from '../store/sessionStore';
 import { useUIStore } from '../store/uiStore';
 import { useLayoutStore } from '../store/layoutStore';
 import { formatSessionType } from '../lib/format';
+import { isReplayableSession } from '../replay/links';
 
 export const Topbar: React.FC = () => {
   const { activeSession, selectedYear, setSelectedYear } = useSessionStore();
   const { openCatalogue, toggleSidebar } = useUIStore();
   const { currentLayoutName, saveLayout, savedLayouts, loadLayout } = useLayoutStore();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const canReplay =
+    activeSession != null &&
+    isReplayableSession(activeSession.year, activeSession.session_type) &&
+    pathname !== '/race-replay';
 
   return (
     <header className="topbar">
@@ -61,6 +68,16 @@ export const Topbar: React.FC = () => {
                 {formatSessionType(activeSession.session_type)}
               </span>
             </>
+          )}
+          {canReplay && (
+            <button
+              className="topbar__btn"
+              onClick={() => navigate('/race-replay')}
+              title={`Replay the ${activeSession.event_name} ${formatSessionType(activeSession.session_type).toLowerCase()}`}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: 'var(--space-2)' }}
+            >
+              <Play size={13} /> Replay
+            </button>
           )}
         </div>
       </div>

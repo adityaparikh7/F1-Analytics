@@ -73,6 +73,15 @@ PANEL_CATALOGUE = [
         "minSize": {"w": 4, "h": 4},
     },
     {
+        "id": "race-replay",
+        "title": "Race Moments",
+        "category": "session",
+        "description": "The race in ten moments — lead changes, safety cars, retirements, passes — "
+        "each one click into the replay.",
+        "defaultSize": {"w": 6, "h": 6},
+        "minSize": {"w": 4, "h": 4},
+    },
+    {
         "id": "lap-distribution",
         "title": "Lap Time Distribution",
         "category": "performance",

@@ -458,6 +458,174 @@ export interface PanelCatalogueItem {
   minSize: { w: number; h: number };
 }
 
+// ── Race Replay ─────────────────────────────────────────────────────
+// Per-frame arrays arrive delta-encoded (`encoding: 'delta-int'`); decode them with
+// `decodeReplay` in `src/replay/decode.ts` rather than reading them directly.
+
+export type TrackStatusKind = 'green' | 'yellow' | 'sc' | 'red' | 'vsc' | 'vsc_ending';
+
+export interface ReplayStatus {
+  session_key: string;
+  available: boolean;
+  reason: string | null;
+  cached: boolean;
+  building: boolean;
+}
+
+export interface ReplayCorner {
+  number: number;
+  letter: string;
+  x: number;
+  y: number;
+  label_x: number;
+  label_y: number;
+}
+
+export interface ReplayDriverPayload {
+  number: string;
+  abbr: string;
+  team: string;
+  grid: number | null;
+  classified?: string | null;
+  status?: string | null;
+  finish_t: number | null;
+  retired_t: number | null;
+  /** Rotated position in metres. */
+  x: number[];
+  y: number[];
+  /** Race progress in metres: exactly lap × lap_length_m at each line crossing. */
+  d: number[];
+  /** Frame ranges [start, end) with no position data. */
+  hidden: [number, number][];
+}
+
+export interface ReplayLap {
+  driver: string;
+  lap: number;
+  /** Session time of the line crossing; null for laps FastF1 generated. */
+  end_t: number | null;
+  lap_time: number | null;
+  position: number | null;
+  compound: string | null;
+  tyre_life: number | null;
+  stint: number | null;
+}
+
+export interface ReplayPitStop {
+  driver: string;
+  lap: number;
+  in_t: number;
+  out_t: number | null;
+  duration: number | null;
+  /** Entered during a red flag: the "duration" is the stoppage, not a stop. */
+  under_red: boolean;
+}
+
+export interface ReplayTrackStatus {
+  start_t: number;
+  end_t: number;
+  code: string;
+  kind: TrackStatusKind;
+}
+
+export interface ReplayRaceControl {
+  t: number;
+  category: string | null;
+  message: string | null;
+  flag: string | null;
+  scope: string | null;
+  sector: number | null;
+  driver_number: string | null;
+  lap: number | null;
+}
+
+export interface ReplayPayload {
+  version: number;
+  encoding: 'delta-int';
+  session_key: string;
+  event_name: string;
+  session_name: string;
+  /** Frames per second of session time; frame i is at t_start + i / hz. */
+  hz: number;
+  t_start: number;
+  n_frames: number;
+  race_start_t: number;
+  finish_t: number | null;
+  t0_date?: string | null;
+  total_laps: number;
+  lap_length_m: number;
+  track: { outline: [number, number][]; rotation: number; corners: ReplayCorner[] };
+  drivers: ReplayDriverPayload[];
+  track_status: ReplayTrackStatus[];
+  laps: ReplayLap[];
+  pit_stops: ReplayPitStop[];
+  race_control: ReplayRaceControl[];
+}
+
+// ── Race Moments ────────────────────────────────────────────────────
+
+export type RaceMomentKind =
+  | 'finish'
+  | 'start_lead'
+  | 'start_gain'
+  | 'start_loss'
+  | 'lead_change'
+  | 'sc'
+  | 'vsc'
+  | 'red'
+  | 'retirement'
+  | 'podium_pass'
+  | 'position_drop'
+  | 'fastest_lap';
+
+export interface RaceMoment {
+  /** Lap to open the replay at (it seeks to the start of this lap). */
+  lap: number;
+  kind: RaceMomentKind;
+  text: string;
+  /** Driver to focus in the replay, if the moment is about one. */
+  driver: string | null;
+  /** 0 = always shown; lower is more important. */
+  priority: number;
+}
+
+export interface RaceMoments {
+  session_key: string;
+  total_laps: number;
+  winner: { driver: string; team: string | null } | null;
+  runner_up: string | null;
+  margin_s: number | null;
+  teams: Record<string, string>;
+  /** Leader at the end of each lap; index 0 is lap 1. */
+  leaders: (string | null)[];
+  periods: { kind: 'sc' | 'vsc' | 'red'; start_lap: number; end_lap: number }[];
+  moments: RaceMoment[];
+  stats: {
+    lead_changes: number;
+    laps_led: { driver: string; laps: number }[];
+    passes: number;
+    dnfs: number;
+    safety_cars: number;
+    vscs: number;
+    red_flags: number;
+    biggest_mover: { driver: string; grid: number; finish: number; gain: number } | null;
+    fastest_lap: { driver: string; lap: number; time: number } | null;
+  };
+  caveats: string[];
+}
+
+export interface ReplayHudPayload {
+  number: string;
+  abbr: string;
+  speed: number[];
+  throttle: number[];
+  brake: number[];
+  gear: number[];
+  drs: number[];
+  /** False from 2026, when the DRS channel is always zero. */
+  has_drs: boolean;
+}
+
 // ── API Functions ───────────────────────────────────────────────────
 
 export const api = {
@@ -603,4 +771,22 @@ export const api = {
 
   syncSeasonSessions: (year: number) =>
     request<{ status: string }>(`/sessions/sync?year=${year}`, { method: 'POST' }),
+
+  // Race replay
+  getReplayStatus: (key: string) =>
+    request<ReplayStatus>(`/sessions/${key}/replay/status`),
+
+  /**
+   * Whole-race replay. The first request for a race builds it (seconds from a warm FastF1
+   * cache, a minute or more on a first download); later ones are served from disk.
+   */
+  getReplay: (key: string) =>
+    request<ReplayPayload>(`/sessions/${key}/replay`),
+
+  getReplayHud: (key: string, driver: string) =>
+    request<ReplayHudPayload>(`/sessions/${key}/replay/hud?driver=${encodeURIComponent(driver)}`),
+
+  /** The race in about ten moments, from ingested lap data (instant; no replay build). */
+  getRaceMoments: (key: string) =>
+    request<RaceMoments>(`/sessions/${key}/race-moments`),
 };

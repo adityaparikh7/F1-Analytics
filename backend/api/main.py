@@ -57,7 +57,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ── Routers ────────────────────────────────────────────────────────────
 from backend.api.championship import router as championship_router  # noqa: E402
+from backend.api.moments import router as moments_router  # noqa: E402
 from backend.api.panels import router as panels_router  # noqa: E402
+from backend.api.replay import router as replay_router  # noqa: E402
 from backend.api.sessions import router as sessions_router  # noqa: E402
 from backend.api.standings import router as standings_router  # noqa: E402
 from backend.api.telemetry import router as telemetry_router  # noqa: E402
@@ -69,6 +71,8 @@ app.include_router(telemetry_router, prefix="/api")
 app.include_router(panels_router, prefix="/api")
 app.include_router(tyres_router, prefix="/api")
 app.include_router(championship_router, prefix="/api")
+app.include_router(replay_router, prefix="/api")
+app.include_router(moments_router, prefix="/api")
 
 
 @app.get("/api/health")

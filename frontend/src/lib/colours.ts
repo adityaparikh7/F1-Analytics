@@ -77,13 +77,9 @@ export function getDriverColour(driver: string, team?: string | null): string {
   return '#888890'; // Fallback grey
 }
 
-/**
- * Smart color lightness adjuster.
- * Converts Hex or RGB to HSL, then lightens or darkens based on original lightness.
- * Keeps colors visible and high contrast on dark backgrounds.
- */
-export function adjustColorLightness(color: string, percent: number = 25): string {
-  let r = 0, g = 0, b = 0;
+/** Hex (3/4/6/8-digit) or rgb()/rgba() → rounded [hue°, saturation %, lightness %], or null. */
+function toHsl(color: string): [number, number, number] | null {
+  let r: number, g: number, b: number;
   const trimmed = color.trim().toLowerCase();
 
   if (trimmed.startsWith('#')) {
@@ -97,7 +93,7 @@ export function adjustColorLightness(color: string, percent: number = 25): strin
       g = parseInt(hex.substring(2, 4), 16);
       b = parseInt(hex.substring(4, 6), 16);
     } else {
-      return color;
+      return null;
     }
   } else if (trimmed.startsWith('rgb')) {
     const match = trimmed.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)$/);
@@ -106,13 +102,12 @@ export function adjustColorLightness(color: string, percent: number = 25): strin
       g = parseInt(match[2], 10);
       b = parseInt(match[3], 10);
     } else {
-      return color;
+      return null;
     }
   } else {
-    return color;
+    return null;
   }
 
-  // Convert RGB to HSL
   const rNorm = r / 255;
   const gNorm = g / 255;
   const bNorm = b / 255;
@@ -134,9 +129,18 @@ export function adjustColorLightness(color: string, percent: number = 25): strin
     h /= 6;
   }
 
-  const hDeg = Math.round(h * 360);
-  const sPct = Math.round(s * 100);
-  const lPct = Math.round(l * 100);
+  return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+}
+
+/**
+ * Smart color lightness adjuster.
+ * Converts Hex or RGB to HSL, then lightens or darkens based on original lightness.
+ * Keeps colors visible and high contrast on dark backgrounds.
+ */
+export function adjustColorLightness(color: string, percent: number = 25): string {
+  const hsl = toHsl(color);
+  if (!hsl) return color;
+  const [hDeg, sPct, lPct] = hsl;
 
   // If the color is already dark, we lighten it. If it's light, we darken it.
   const isDark = lPct < 40;
@@ -149,6 +153,17 @@ export function adjustColorLightness(color: string, percent: number = 25): strin
   if (newL > 90) newL = 90;
 
   return `hsl(${hDeg}, ${sPct}%, ${newL}%)`;
+}
+
+/**
+ * The colour unchanged unless it is too dark to read on the page background, in which case
+ * the same hue raised to `minLightness` (%). For small marks such as icons and thin bars:
+ * some team colours (Red Bull's navy) all but vanish on the dark theme.
+ */
+export function ensureReadable(color: string, minLightness: number = 45): string {
+  const hsl = toHsl(color);
+  if (!hsl || hsl[2] >= minLightness) return color;
+  return `hsl(${hsl[0]}, ${hsl[1]}%, ${minLightness}%)`;
 }
 
 /**
@@ -196,4 +211,39 @@ export const COMPOUND_COLOURS: Record<string, string> = {
 export function getCompoundColour(compound: string | null | undefined): string {
   if (!compound) return COMPOUND_COLOURS.UNKNOWN;
   return COMPOUND_COLOURS[compound.toUpperCase()] || COMPOUND_COLOURS.UNKNOWN;
+}
+
+// ── Track Status & Flags ────────────────────────────────────────────
+
+/** Keyed by the replay's track status `kind`. */
+export const TRACK_STATUS_COLOURS: Record<string, string> = {
+  green: '#39B54A',
+  yellow: '#FFE066',
+  sc: '#FFC906',
+  vsc: '#FF9F1C',
+  vsc_ending: '#FF9F1C',
+  red: '#E8002D',
+};
+
+export function getTrackStatusColour(kind: string | null | undefined): string {
+  if (!kind) return TRACK_STATUS_COLOURS.green;
+  return TRACK_STATUS_COLOURS[kind] || TRACK_STATUS_COLOURS.green;
+}
+
+/** Race control message flags (the `Flag` field of the FastF1 feed). */
+export const FLAG_COLOURS: Record<string, string> = {
+  GREEN: '#39B54A',
+  CLEAR: '#39B54A',
+  YELLOW: '#FFC906',
+  'DOUBLE YELLOW': '#FFC906',
+  RED: '#E8002D',
+  BLUE: '#3671C6',
+  CHEQUERED: '#F0F0F0',
+  'BLACK AND WHITE': '#F0F0F0',
+  BLACK: '#888890',
+};
+
+export function getFlagColour(flag: string | null | undefined): string | null {
+  if (!flag) return null;
+  return FLAG_COLOURS[flag.toUpperCase()] || null;
 }

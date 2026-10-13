@@ -18,6 +18,9 @@ DUCKDB_PATH = Path(os.getenv("DUCKDB_PATH", str(PROJECT_ROOT / "data" / "pitwall
 # Trained ML artifacts (tyre degradation pooled model). Lives under data/, which is
 # git-ignored, so artifacts stay local and are rebuilt by retraining rather than committed.
 MODELS_DIR = Path(os.getenv("MODELS_DIR", str(PROJECT_ROOT / "data" / "models")))
+# Built race replays (positions + timelines per race), derived on demand from the FastF1
+# cache and served as-is. Safe to delete; each replay is rebuilt the next time it is opened.
+REPLAY_CACHE_DIR = Path(os.getenv("REPLAY_CACHE_DIR", str(PROJECT_ROOT / "data" / "replay")))
 
 # ── API ────────────────────────────────────────────────────────────────
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
@@ -39,5 +42,5 @@ PARQUET_STANDINGS_DIR = PARQUET_DIR / "standings"
 # ── Ensure directories exist ───────────────────────────────────────────
 for _dir in [CACHE_DIR, PARQUET_SESSIONS_DIR, PARQUET_LAPS_DIR,
              PARQUET_TELEMETRY_DIR, PARQUET_RESULTS_DIR, PARQUET_STANDINGS_DIR,
-             MODELS_DIR]:
+             MODELS_DIR, REPLAY_CACHE_DIR]:
     _dir.mkdir(parents=True, exist_ok=True)

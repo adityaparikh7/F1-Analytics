@@ -15,6 +15,7 @@ import TelemetryPage from './pages/TelemetryPage';
 import TeamRadioPage from './pages/TeamRadioPage';
 import TyreDegradationPage from './pages/TyreDegradationPage';
 import ChampionshipPage from './pages/ChampionshipPage';
+import RaceReplayPage from './pages/RaceReplayPage';
 
 // ── Register all panels ─────────────────────────────────────────────
 // Each import triggers the registerPanel() call in the module
@@ -37,6 +38,7 @@ import './panels/race-control/RaceControlPanel';
 import './panels/team-radio/TeamRadioPanel';
 import './panels/tyre-degradation/TyreDegradationPanel';
 import './panels/championship/ChampionshipPanel';
+import './panels/race-replay/RaceMomentsPanel';
 
 const App: React.FC = () => {
   return (
@@ -51,6 +53,7 @@ const App: React.FC = () => {
           <Route path="/team-radio" element={<TeamRadioPage />} />
           <Route path="/tyre-degradation" element={<TyreDegradationPage />} />
           <Route path="/championship" element={<ChampionshipPage />} />
+          <Route path="/race-replay" element={<RaceReplayPage />} />
         </Routes>
       </div>
       <CatalogueDrawer />
