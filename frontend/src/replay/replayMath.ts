@@ -161,6 +161,64 @@ export function redFlagSkips(replay: Replay): [number, number][] {
     .map(iv => [iv.start_t + 8, iv.end_t - 5] as [number, number]);
 }
 
+// ── Red-flag holds ──────────────────────────────────────────────────
+
+const freezeWindows = new WeakMap<Replay, [number, number][]>();
+
+/** Look this far past a red flag for the restart's standing start. */
+const RESTART_SEARCH_S = 600;
+/** Below this speed (m/s) the leader is standing still (on the grid). */
+const STILL_MS = 1.5;
+
+/**
+ * When racing resumed after a red flag: for a standing restart, the moment the leader pulled
+ * away from the grid (the last time it stood still after the flag); for a rolling one, the
+ * flag's end.
+ */
+function restartTime(replay: Replay, start: number, end: number): number {
+  const leader = leaderCar(replay, start);
+  if (!leader) return end;
+  const nextRed = replay.trackStatus.find(iv => iv.kind === 'red' && iv.start_t > end)?.start_t ?? Infinity;
+  const limit = Math.min(end + RESTART_SEARCH_S, nextRed, replay.tEnd);
+  const step = 1 / replay.hz;
+  let lastStill: number | null = null;
+  for (let t = end; t < limit; t += step) {
+    const a = positionAt(replay, leader, t);
+    const b = positionAt(replay, leader, t + step);
+    if (a && b && Math.hypot(b[0] - a[0], b[1] - a[1]) / step < STILL_MS) lastStill = t;
+  }
+  return lastStill ?? end;
+}
+
+/**
+ * Periods when the running order must be held at the moment a red flag came out: the stoppage
+ * itself, then the restart until the leader first crosses the line after racing resumes. Cars
+ * leave the pit lane, do a formation lap and line up in red-flag order; race distance in
+ * between (pit-lane detours, formation laps, cars waiting at pit exit) does not reflect it.
+ */
+function redFlagHolds(replay: Replay): [number, number][] {
+  let holds = freezeWindows.get(replay);
+  if (!holds) {
+    const crossings = leaderLapEnds(replay).map(l => l.t);
+    holds = replay.trackStatus
+      .filter(iv => iv.kind === 'red')
+      .map(iv => {
+        const resumed = restartTime(replay, iv.start_t, iv.end_t);
+        return [iv.start_t, crossings.find(t => t > resumed) ?? iv.end_t] as [number, number];
+      });
+    freezeWindows.set(replay, holds);
+  }
+  return holds;
+}
+
+/** The time whose order and gaps are shown at t: held at the red flag through its restart. */
+export function orderTime(replay: Replay, t: number): number {
+  for (const [start, end] of redFlagHolds(replay)) {
+    if (t >= start && t < end) return start;
+  }
+  return t;
+}
+
 // ── Standings ───────────────────────────────────────────────────────
 
 function gapBetween(replay: Replay, ahead: StandingRow, behind: StandingRow, t: number): Gap {
@@ -181,13 +239,14 @@ function gapBetween(replay: Replay, ahead: StandingRow, behind: StandingRow, t: 
 /**
  * The timing tower at session time `t`.
  *
- * Before lights out the order is the starting grid (pit-lane starters last). Under a red
- * flag the order and gaps are frozen at the moment the flag came out; otherwise "time since
- * the car ahead was here" keeps growing while the cars sit in the pit lane.
+ * Before lights out the order is the starting grid (pit-lane starters last). From a red flag
+ * until the leader's first line crossing after the restart, the order and gaps are held at the
+ * moment the flag came out (see `orderTime`); otherwise "time since the car ahead was here"
+ * keeps growing while the cars sit in the pit lane, and formation laps scramble the order.
  */
 export function computeStandings(replay: Replay, t: number): StandingRow[] {
   const status = trackStatusAt(replay, t);
-  const tOrder = status?.kind === 'red' ? Math.min(t, status.start_t) : t;
+  const tOrder = orderTime(replay, t);
   const preStart = t < replay.raceStart;
   const field = replay.drivers.length;
 
@@ -260,6 +319,21 @@ export function battlesAt(rows: StandingRow[], threshold = BATTLE_THRESHOLD_S): 
     }
   }
   return inBattle;
+}
+
+/** The running car furthest round the race at time t (the leader on the road). */
+export function leaderCar(replay: Replay, t: number): ReplayDriver | undefined {
+  let best: ReplayDriver | undefined;
+  let bestD = -Infinity;
+  for (const drv of replay.drivers) {
+    if (carOpacity(drv, t) < 1) continue;
+    const d = distanceAt(replay, drv, t);
+    if (d > bestD) {
+      bestD = d;
+      best = drv;
+    }
+  }
+  return best;
 }
 
 /** Whether a car should be drawn on the map at time t, and how strongly. */

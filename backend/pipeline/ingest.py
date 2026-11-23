@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import requests
 from fastf1.ergast.interface import BASE_URL as ERGAST_BASE_URL
+from fastf1.exceptions import DataNotLoadedError
 
 from backend.config import (
     CACHE_DIR,
@@ -23,6 +24,8 @@ from backend.config import (
     PARQUET_STANDINGS_DIR,
 )
 from backend.db.connection import get_connection
+from backend.pipeline.fastf1_cache import FASTF1_LOCK
+from backend.pipeline.openf1 import OpenF1Session
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +90,18 @@ def ingest_session(
 
     # Load session from FastF1
     identifier = round_number if round_number is not None else event
-    session = fastf1.get_session(year, identifier, session_type)
-    session.load(laps=True, telemetry=False, weather=False, messages=True)
+    with FASTF1_LOCK:  # never while a replay build has FastF1 switched to cache-only
+        session = fastf1.get_session(year, identifier, session_type)
+        session.load(laps=True, telemetry=False, weather=False, messages=True)
+
+    # Without an F1TV login FastF1 loads the schedule but no timing data; use OpenF1 instead.
+    try:
+        has_laps = not session.laps.empty
+    except DataNotLoadedError:
+        has_laps = False
+    if not has_laps:
+        _progress("FastF1 timing data unavailable, falling back to OpenF1")
+        session = OpenF1Session(session, year, session_type)
 
     # Determine round number from the loaded session
     actual_round = int(session.event["RoundNumber"])
@@ -425,7 +438,8 @@ def _store_results(session, session_key: str):
 def ingest_calendar(year: int) -> None:
     """Fetch and store the season calendar."""
     _init_fastf1()
-    schedule = fastf1.get_event_schedule(year, include_testing=False)
+    with FASTF1_LOCK:
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
 
     conn = get_connection()
     conn.execute("DELETE FROM calendar WHERE year = ?", [year])
@@ -477,8 +491,9 @@ def fetch_telemetry(
     _init_fastf1()
 
     identifier = round_number if round_number is not None else event
-    session = fastf1.get_session(year, identifier, session_type)
-    session.load(laps=True, telemetry=True, weather=False, messages=False)
+    with FASTF1_LOCK:
+        session = fastf1.get_session(year, identifier, session_type)
+        session.load(laps=True, telemetry=True, weather=False, messages=False)
 
     driver_laps = session.laps.pick_drivers(driver)
     
@@ -526,11 +541,13 @@ def fetch_circuit_info(
     _init_fastf1()
 
     identifier = round_number if round_number is not None else event
-    session = fastf1.get_session(year, identifier, session_type)
-    session.load(laps=True, telemetry=True, weather=False, messages=False)
+    with FASTF1_LOCK:
+        session = fastf1.get_session(year, identifier, session_type)
+        session.load(laps=True, telemetry=True, weather=False, messages=False)
 
     try:
-        circuit_info = session.get_circuit_info()
+        with FASTF1_LOCK:
+            circuit_info = session.get_circuit_info()
         corners = circuit_info.corners
         if corners.empty:
             return []
@@ -580,14 +597,21 @@ def sync_season_sessions(year: int) -> None:
     except Exception as e:
         logger.error("Failed to backfill points for %s: %s", year, e)
 
-    # Pre-fetch all ingested session keys to avoid repeated queries
+    # Pre-fetch all ingested session keys to avoid repeated queries. A failed ingest can leave a
+    # sessions row behind with no laps, so only sessions that actually have laps count as done.
     try:
-        existing_keys = {row[0] for row in conn.execute("SELECT session_key FROM sessions").fetchall()}
+        existing_keys = {
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT s.session_key FROM sessions s JOIN laps l ON l.session_key = s.session_key"
+            ).fetchall()
+        }
     except Exception:
         existing_keys = set()
     
     try:
-        schedule = fastf1.get_event_schedule(year, include_testing=False)
+        with FASTF1_LOCK:
+            schedule = fastf1.get_event_schedule(year, include_testing=False)
     except Exception as e:
         logger.warning("Failed to fetch schedule for %s: %s", year, e)
         return

@@ -7,6 +7,17 @@
 
 import type React from 'react';
 
+/** The scrolling page column the replay page and its loading state share. */
+export const replayPageStyle: React.CSSProperties = {
+  padding: 'var(--space-6)',
+  overflowY: 'auto',
+  height: '100%',
+  width: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-4)',
+};
+
 export const cardStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-panel)',
   borderRadius: 'var(--radius-lg)',
@@ -58,3 +69,11 @@ export function toggleStyle(active: boolean): React.CSSProperties {
     color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
   };
 }
+
+/** Small caps label above a HUD readout. */
+export const hudLabelStyle: React.CSSProperties = {
+  fontSize: 'var(--fs-xs)',
+  color: 'var(--text-tertiary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+};

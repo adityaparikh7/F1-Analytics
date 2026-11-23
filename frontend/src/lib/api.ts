@@ -242,6 +242,41 @@ export interface TelemetryPoint {
   y: number | null;
 }
 
+/** One lap's samples as column arrays (see backend/pipeline/lap_trace.py). */
+export interface LapTraceSamples {
+  /** Seconds since the lap started at the line. */
+  t: (number | null)[];
+  /** Metres since the line (integrated from speed). */
+  d: (number | null)[];
+  /** Position in metres, rotated like the race replay; z is elevation. */
+  x: (number | null)[];
+  y: (number | null)[];
+  z: (number | null)[];
+  speed: (number | null)[];
+  throttle: (number | null)[];
+  brake: (number | null)[];
+  gear: (number | null)[];
+  rpm: (number | null)[];
+  /** 1 while the DRS flap is open. */
+  drs: number[];
+}
+
+export interface LapTrace {
+  session_key: string;
+  rotation: number;
+  corners: ReplayCorner[];
+  driver: string;
+  driver_number: string;
+  team: string | null;
+  lap: number;
+  lap_time: number | null;
+  sectors: (number | null)[];
+  compound: string | null;
+  tyre_life: number | null;
+  is_personal_best: boolean;
+  samples: LapTraceSamples;
+}
+
 export interface TelemetryResponse {
   session_key: string;
   driver: string;
@@ -469,7 +504,11 @@ export interface ReplayStatus {
   available: boolean;
   reason: string | null;
   cached: boolean;
+  /** Newest replay version built for this session (null when none is). */
+  version: number | null;
   building: boolean;
+  /** An older version is cached and being rebuilt as the current one. */
+  upgrading: boolean;
 }
 
 export interface ReplayCorner {
@@ -554,12 +593,34 @@ export interface ReplayPayload {
   t0_date?: string | null;
   total_laps: number;
   lap_length_m: number;
-  track: { outline: [number, number][]; rotation: number; corners: ReplayCorner[] };
+  /** Outline points are [x, y] in v1 and [x, y, elevation] (metres) from v2. */
+  track: { outline: ([number, number] | [number, number, number])[]; rotation: number; corners: ReplayCorner[] };
   drivers: ReplayDriverPayload[];
   track_status: ReplayTrackStatus[];
   laps: ReplayLap[];
   pit_stops: ReplayPitStop[];
   race_control: ReplayRaceControl[];
+}
+
+export interface ReplayWeatherSample {
+  /** Session time (s), the same clock as the replay. */
+  t: number;
+  air: number | null;
+  track: number | null;
+  humidity: number | null;
+  pressure: number | null;
+  rain: boolean;
+  wind_speed: number | null;
+  wind_dir: number | null;
+}
+
+export interface ReplayWeather {
+  session_key: string;
+  /** Where the data came from; null when neither source had any. */
+  source: 'fastf1' | 'openf1' | null;
+  samples: ReplayWeatherSample[];
+  /** [start_t, end_t] periods with rain. */
+  rain: [number, number][];
 }
 
 // ── Race Moments ────────────────────────────────────────────────────
@@ -587,6 +648,33 @@ export interface RaceMoment {
   driver: string | null;
   /** 0 = always shown; lower is more important. */
   priority: number;
+  // Facts the headline is built from (present where they apply).
+  /** The other driver: passed car, previous leader, runner-up, pole-sitter. */
+  other?: string;
+  pos_before?: number;
+  pos_after?: number;
+  /** Lead changes: track / pit / ret / restart / duel. Retirements: the stated reason. */
+  reason?: string;
+  /** Incidents: the periods folded together (e.g. sc then red), their last lap and causes. */
+  kinds?: ('sc' | 'vsc' | 'red')[];
+  end_lap?: number;
+  drivers?: string[];
+  margin_s?: number;
+  lap_time?: number;
+  swaps?: number;
+  pit_lane_start?: boolean;
+}
+
+export interface RaceOvertake {
+  lap: number;
+  driver: string;
+  other: string;
+  pos_before: number;
+  pos_after: number;
+  other_pos_before: number;
+  other_pos_after: number;
+  /** Also a podium-pass moment. */
+  decisive: boolean;
 }
 
 export interface RaceMoments {
@@ -600,6 +688,10 @@ export interface RaceMoments {
   leaders: (string | null)[];
   periods: { kind: 'sc' | 'vsc' | 'red'; start_lap: number; end_lap: number }[];
   moments: RaceMoment[];
+  /** Every candidate moment, uncapped, in lap order (the replay's narrated feed). */
+  timeline: RaceMoment[];
+  /** Every on-track pass. */
+  overtakes: RaceOvertake[];
   stats: {
     lead_changes: number;
     laps_led: { driver: string; laps: number }[];
@@ -618,6 +710,8 @@ export interface ReplayHudPayload {
   number: string;
   abbr: string;
   speed: number[];
+  /** From replay v2. */
+  rpm?: number[];
   throttle: number[];
   brake: number[];
   gear: number[];
@@ -693,6 +787,10 @@ export const api = {
     if (downsample) params.set('downsample', String(downsample));
     return request<TelemetryResponse>(`/sessions/${key}/telemetry?${params}`);
   },
+
+  /** One lap in race-replay coordinates, for lap comparison. `lap` is a number or 'fastest'. */
+  getLapTrace: (key: string, driver: string, lap: number | 'fastest') =>
+    request<LapTrace>(`/sessions/${key}/lap-trace?${new URLSearchParams({ driver, lap: String(lap) })}`),
 
   getTopSpeeds: (key: string, topN?: number) => {
     const params = new URLSearchParams();
@@ -783,8 +881,16 @@ export const api = {
   getReplay: (key: string) =>
     request<ReplayPayload>(`/sessions/${key}/replay`),
 
-  getReplayHud: (key: string, driver: string) =>
-    request<ReplayHudPayload>(`/sessions/${key}/replay/hud?driver=${encodeURIComponent(driver)}`),
+  /** Pass the loaded replay's `version` so the telemetry matches its frames. */
+  getReplayHud: (key: string, driver: string, version?: number) => {
+    const params = new URLSearchParams({ driver });
+    if (version != null) params.set('v', String(version));
+    return request<ReplayHudPayload>(`/sessions/${key}/replay/hud?${params}`);
+  },
+
+  /** Weather on the replay clock (~1 sample/min); built on first request. */
+  getReplayWeather: (key: string) =>
+    request<ReplayWeather>(`/sessions/${key}/replay/weather`),
 
   /** The race in about ten moments, from ingested lap data (instant; no replay build). */
   getRaceMoments: (key: string) =>

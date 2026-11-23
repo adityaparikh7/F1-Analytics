@@ -19,7 +19,9 @@ interface Props {
   mode: GapMode;
   focus: string | null;
   battles?: Set<string>;
-  onSelect?: (abbr: string) => void;
+  rival?: string | null;
+  /** Click selects (shift: as the rival to compare with). */
+  onSelect?: (abbr: string, shift: boolean) => void;
   rowHeight?: number;
 }
 
@@ -51,6 +53,7 @@ export const TimingTower: React.FC<Props> = ({
   focus,
   battles,
   onSelect,
+  rival = null,
   rowHeight = 26,
 }) => {
   return (
@@ -73,7 +76,7 @@ export const TimingTower: React.FC<Props> = ({
         return (
           <div
             key={drv.abbr}
-            onClick={onSelect ? () => onSelect(drv.abbr) : undefined}
+            onClick={onSelect ? e => onSelect(drv.abbr, e.shiftKey) : undefined}
             style={{
               position: 'absolute',
               left: 0,
@@ -86,7 +89,7 @@ export const TimingTower: React.FC<Props> = ({
               gap: 'var(--space-2)',
               padding: '0 var(--space-2)',
               borderBottom: '1px solid var(--border-default)',
-              background: isFocus ? 'var(--bg-active)' : 'transparent',
+              background: isFocus ? 'var(--bg-active)' : drv.abbr === rival ? 'var(--bg-hover)' : 'transparent',
               cursor: onSelect ? 'pointer' : 'default',
               opacity: out ? 0.45 : 1,
               fontSize: 'var(--fs-sm)',

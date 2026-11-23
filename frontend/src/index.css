@@ -563,11 +563,42 @@ input:focus, select:focus {
   background: var(--bg-raised);
 }
 
+.data-table--compact th,
+.data-table--compact td {
+  padding: 5px 6px;
+  white-space: nowrap;
+}
+
+.data-table--compact td {
+  font-size: var(--fs-xs);
+}
+
+.data-table--compact th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-panel);
+  letter-spacing: 0.03em;
+}
+
 .data-table__position {
   font-weight: 600;
   min-width: 28px;
   display: inline-block;
   text-align: center;
+}
+
+/* ── Replay track strip: lapped cars drawn as rings ──────────────────── */
+.track-strip__car[data-lap="up"] circle {
+  fill: none;
+  stroke: var(--accent-amber);
+  stroke-width: 2;
+}
+
+.track-strip__car[data-lap="down"] circle {
+  fill: none;
+  stroke: var(--accent-blue);
+  stroke-width: 2;
 }
 
 /* ── Race moments (click a row to open the replay there) ───────────── */

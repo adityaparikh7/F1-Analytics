@@ -8,7 +8,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { FastForward, Pause, Play, Rewind } from 'lucide-react';
-import { getTrackStatusColour } from '../lib/colours';
+import { getTrackStatusColour, RAIN_COLOUR } from '../lib/colours';
 import type { Replay } from './decode';
 import { formatRaceClock } from './replayMath';
 import { iconButtonStyle, selectStyle } from './styles';
@@ -23,6 +23,8 @@ export interface TimelineMarker {
 
 interface Props {
   replay: Replay;
+  /** Rain periods, drawn as a blue strip above the timeline. */
+  rain?: [number, number][];
   clock: PlaybackClock;
   lapTicks: { lap: number; t: number }[];
   leaderLap: number;
@@ -50,6 +52,7 @@ export const PlaybackBar: React.FC<Props> = ({
   skipRed,
   onSkipRedChange,
   markers = [],
+  rain = [],
 }) => {
   const barRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
@@ -224,6 +227,22 @@ export const PlaybackBar: React.FC<Props> = ({
               L{lap}
             </span>
           ))}
+
+        {rain.map(([a, b]) => (
+          <div
+            key={`rain-${a}`}
+            title="Rain"
+            style={{
+              position: 'absolute',
+              left: `${pct(a)}%`,
+              width: `${Math.max(pct(b) - pct(a), 0.3)}%`,
+              top: 7,
+              height: 3,
+              borderRadius: 1,
+              background: RAIN_COLOUR,
+            }}
+          />
+        ))}
 
         {markers.map(m => (
           <div

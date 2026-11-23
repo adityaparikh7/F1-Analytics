@@ -325,8 +325,15 @@ class _Context:
         return self.outcome.get(driver) == "retired" and self.race.last_lap.get(driver, 0) <= n + 1
 
 
-def _moment(lap: int, kind: str, text: str, driver: str | None, priority: int) -> dict:
-    return {"lap": int(lap), "kind": kind, "text": text, "driver": driver, "priority": priority}
+def _moment(lap: int, kind: str, text: str, driver: str | None, priority: int, **facts) -> dict:
+    """
+    A moment: ``text`` is the one-line headline; ``facts`` carry what it is built from (the other
+    driver, positions, reason…) for consumers that tell it in more detail, such as the replay's
+    narrated event feed. Facts that are None are left out.
+    """
+    moment = {"lap": int(lap), "kind": kind, "text": text, "driver": driver, "priority": priority}
+    moment.update({k: v for k, v in facts.items() if v is not None})
+    return moment
 
 
 def finish_moment(ctx: _Context) -> tuple[dict, str | None, float | None, str | None]:
@@ -343,7 +350,8 @@ def finish_moment(ctx: _Context) -> tuple[dict, str | None, float | None, str | 
         text = f"{winner} wins by {margin:.3f}s from {runner_up}"
     else:
         text = f"{winner} wins"
-    return _moment(ctx.race.n_laps, "finish", text, winner, 0), winner, margin, runner_up
+    moment = _moment(ctx.race.n_laps, "finish", text, winner, 0, other=runner_up, margin_s=margin)
+    return moment, winner, margin, runner_up
 
 
 def start_moments(ctx: _Context) -> list[dict]:
@@ -352,7 +360,10 @@ def start_moments(ctx: _Context) -> list[dict]:
     leader1 = race.leader(1)
     pole = next((d for d, g in ctx.grid.items() if g == 1), None)
     if pole and leader1 and leader1 != pole:
-        out.append(_moment(1, "start_lead", f"{leader1} takes the lead from {pole} at the start", leader1, 1))
+        out.append(_moment(
+            1, "start_lead", f"{leader1} takes the lead from {pole} at the start", leader1, 1,
+            other=pole, pos_before=_int(ctx.grid.get(leader1)), pos_after=1,
+        ))
 
     starters = int(race.present.loc[1].sum()) if race.n_laps else 0
     mass_pit_start = 1 in ctx.mass_pit
@@ -379,14 +390,14 @@ def start_moments(ctx: _Context) -> list[dict]:
         delta, driver, slot, p1 = gain
         out.append(_moment(
             1, "start_gain", f"{driver} gains {delta} places on lap 1 ({label(slot)} → P{p1})", driver,
-            3 if delta >= _START_MOVE_BIG else 4,
+            3 if delta >= _START_MOVE_BIG else 4, pos_before=slot, pos_after=p1, pit_lane_start=slot > starters,
         ))
     loss = min(moves, key=lambda m: (m[0], m[2]))
     if loss[0] <= -_START_MOVE_MIN:
         delta, driver, slot, p1 = loss
         out.append(_moment(
             1, "start_loss", f"{driver} loses {-delta} places on lap 1 ({label(slot)} → P{p1})", driver,
-            3 if -delta >= _START_MOVE_BIG else 4,
+            3 if -delta >= _START_MOVE_BIG else 4, pos_before=slot, pos_after=p1,
         ))
     return out
 
@@ -464,7 +475,7 @@ def _merge_swaps(changes: list[dict]) -> list[dict]:
             first, last = group[0]["lap"], group[-1]["lap"]
             out.append(_moment(
                 first, "lead_change", f"{a} and {b} swap the lead {len(group)} times (laps {first}–{last})",
-                group[-1]["to"], 1,
+                group[-1]["to"], 1, other=group[-1]["from"], reason="duel", end_lap=last, swaps=len(group),
             ))
         else:
             for c in group:
@@ -474,7 +485,10 @@ def _merge_swaps(changes: list[dict]) -> list[dict]:
                     "pit": f"{c['to']} takes the lead as {c['from']} pits",
                     "restart": f"{c['to']} leads at the restart",
                 }[c["reason"]]
-                out.append(_moment(c["lap"], "lead_change", text, c["to"], 1 if c["reason"] in ("track", "ret") else 2))
+                out.append(_moment(
+                    c["lap"], "lead_change", text, c["to"], 1 if c["reason"] in ("track", "ret") else 2,
+                    other=c["from"], reason=c["reason"],
+                ))
         i = j + 1
     return out
 
@@ -517,7 +531,10 @@ def incident_moments(ctx: _Context, periods: list[dict]) -> tuple[list[dict], se
             text += f" — {', '.join(inc['causes'])} out"
             named.update(inc["causes"])
         kind = min(inc["kinds"], key=lambda k: _PERIOD_PRIORITY[k])
-        moments.append(_moment(s, kind, text, inc["causes"][0] if inc["causes"] else None, _PERIOD_PRIORITY[kind]))
+        moments.append(_moment(
+            s, kind, text, inc["causes"][0] if inc["causes"] else None, _PERIOD_PRIORITY[kind],
+            kinds=inc["kinds"], end_lap=e, drivers=inc["causes"] or None,
+        ))
     return moments, named
 
 
@@ -540,7 +557,10 @@ def retirement_moments(ctx: _Context, already_named: set[str]) -> list[dict]:
         text = f"{driver} retires from P{int(pos)}"
         if reason and reason.lower() != "retired":
             text += f" ({reason})"
-        out.append(_moment(last, "retirement", text, driver, 2 if pos <= 3 else 3))
+        out.append(_moment(
+            last, "retirement", text, driver, 2 if pos <= 3 else 3,
+            pos_before=int(pos), reason=reason if reason and reason.lower() != "retired" else None,
+        ))
     return out
 
 
@@ -555,9 +575,10 @@ def _eligible_for_passes(ctx: _Context, n: int) -> bool:
     )
 
 
-def passes(ctx: _Context) -> tuple[int, list[dict]]:
+def passes(ctx: _Context) -> tuple[int, list[dict], list[dict]]:
     """
-    On-track passes, counted for the stat; decisive passes for P2/P3 become moments.
+    On-track passes: ``(count, podium moments, every pass)``. Decisive passes for P2/P3 become
+    moments; every pass is also listed (``overtakes``) for the replay's event feed.
 
     A pass is a pair that swapped order over a green lap with neither car pitting, where the
     passed car is not retiring and did not simply fall down the order (lost ≤2 places).
@@ -567,6 +588,7 @@ def passes(ctx: _Context) -> tuple[int, list[dict]]:
     race = ctx.race
     count = 0
     moments: list[dict] = []
+    overtakes: list[dict] = []
     for n in range(2, race.n_laps + 1):
         if not _eligible_for_passes(ctx, n):
             continue
@@ -582,10 +604,20 @@ def passes(ctx: _Context) -> tuple[int, list[dict]]:
                     continue
                 count += 1
                 k = int(after[a])
-                if k in (2, 3) and a not in shown_this_lap and _decisive(ctx, a, b, n, k):
-                    moments.append(_moment(n, "podium_pass", f"{a} passes {b} for P{k}", a, 3))
+                decisive = k in (2, 3) and a not in shown_this_lap and _decisive(ctx, a, b, n, k)
+                overtakes.append({
+                    "lap": n, "driver": a, "other": b,
+                    "pos_before": int(before[a]), "pos_after": k,
+                    "other_pos_before": int(before[b]), "other_pos_after": int(after[b]),
+                    "decisive": bool(decisive),
+                })
+                if decisive:
+                    moments.append(_moment(
+                        n, "podium_pass", f"{a} passes {b} for P{k}", a, 3,
+                        other=b, pos_before=int(before[a]), pos_after=k,
+                    ))
                     shown_this_lap.add(a)
-    return count, moments
+    return count, moments, overtakes
 
 
 def _decisive(ctx: _Context, a: str, b: str, n: int, k: int) -> bool:
@@ -618,7 +650,7 @@ def position_drops(ctx: _Context) -> list[dict]:
             found.extend(lap_drops)
     found.sort(key=lambda x: (-x[0], x[1]))
     return [
-        _moment(n, "position_drop", f"{d} drops from P{a} to P{b}", d, 4)
+        _moment(n, "position_drop", f"{d} drops from P{a} to P{b}", d, 4, pos_before=a, pos_after=b)
         for _, n, d, a, b in found[:_MAX_DROPS]
     ]
 
@@ -642,6 +674,10 @@ def biggest_mover(ctx: _Context) -> dict | None:
         if best is None or (slot - finish, -finish) > (best["gain"], -best["finish"]):
             best = {"driver": driver, "grid": int(grid), "finish": finish, "gain": slot - finish}
     return best if best and best["gain"] > 0 else None
+
+
+def _int(v) -> int | None:
+    return None if v is None or (isinstance(v, float) and np.isnan(v)) else int(v)
 
 
 def _format_lap_time(seconds: float) -> str:
@@ -695,7 +731,7 @@ def compute_race_moments(
     finish, winner, margin, runner_up = finish_moment(ctx)
     leads = lead_changes(ctx)
     incidents, named = incident_moments(ctx, periods)
-    pass_count, pass_moments = passes(ctx)
+    pass_count, pass_moments, overtakes = passes(ctx)
     fl = fastest_lap(race)
 
     candidates = [finish, *leads, *incidents, *retirement_moments(ctx, named), *pass_moments, *position_drops(ctx)]
@@ -704,11 +740,13 @@ def compute_race_moments(
     if fl:
         candidates.append(_moment(
             fl["lap"], "fastest_lap", f"Fastest lap: {fl['driver']} {_format_lap_time(fl['time'])}", fl["driver"], 5,
+            lap_time=fl["time"],
         ))
 
     cap = MAX_MOMENTS_SPRINT if session_type in ("S", "SQ") else MAX_MOMENTS_RACE
     kept = sorted(candidates, key=lambda m: (m["priority"], m["lap"]))[:cap]
     kept.sort(key=lambda m: (m["lap"], m["kind"] == "finish"))
+    timeline = sorted(candidates, key=lambda m: (m["lap"], m["kind"] == "finish", m["priority"]))
 
     laps_led = Counter(d for d in race.leaders if d is not None)
 
@@ -732,6 +770,10 @@ def compute_race_moments(
         "leaders": race.leaders,
         "periods": periods,
         "moments": kept,
+        # Every candidate moment, uncapped, and every on-track pass: the replay's event feed
+        # tells the whole race, where the dashboard panel shows only the top ten.
+        "timeline": timeline,
+        "overtakes": overtakes,
         "stats": {
             "lead_changes": sum(1 for m in leads if m["kind"] == "lead_change"),
             "laps_led": [{"driver": d, "laps": c} for d, c in laps_led.most_common(3)],

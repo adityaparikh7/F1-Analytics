@@ -1,789 +1,484 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+/**
+ * Telemetry — compare laps on the replay engine.
+ *
+ * Pick up to four laps from the active session (any session type); the first is the reference.
+ * Each lap becomes a car in a synthetic replay (`replay/lapReplay.ts`) that starts at the line at
+ * t = 0, so the laps race each other on the 2D map, the follow cam or the 3D track, at anything
+ * from 0.1× to 4×. Alongside: a timing board with the live gap at the same point of the lap,
+ * minisector dominance drawn on the map, and distance charts (delta, speed, throttle, brake,
+ * gear, RPM) whose cursors follow playback.
+ *
+ * Lap traces come from `GET /sessions/{key}/lap-trace` (FastF1, cached per session on the
+ * backend), fetched as laps are picked.
+ */
 
-import { useSessionStore } from '../store/sessionStore';
-import type { TelemetryResponse, LapData, CornerData, TelemetryPoint } from '../lib/api';
+import React, { lazy, Suspense, useEffect, useMemo, useReducer, useState } from 'react';
+import { Layers } from 'lucide-react';
 import { api } from '../lib/api';
-import { getDriverColour, adjustColorLightness, DRIVER_TEAMS } from '../lib/colours';
-import { formatLapTime, formatSectorTime } from '../lib/format';
+import type { LapData } from '../lib/api';
+import { colourVariant, getDriverColour } from '../lib/colours';
+import { formatSessionType } from '../lib/format';
+import { ErrorBoundary } from '../replay/ErrorBoundary';
+import type { CompareLap, LapComparison } from '../replay/lapReplay';
+import { buildLapComparison } from '../replay/lapReplay';
+import { MapToolbar } from '../replay/MapToolbar';
+import type { TrackOverlay } from '../replay/ReplayTrack';
+import { ReplayTrack } from '../replay/ReplayTrack';
+import { ShortcutHelp } from '../replay/ShortcutHelp';
+import { cardStyle, cardTitleStyle, replayPageStyle as pageStyle, toggleStyle } from '../replay/styles';
+import { buildGeometry } from '../replay/trackGeometry';
+import { initialUiState, persistUiState, uiReducer, ZOOM_LEVELS } from '../replay/uiState';
+import type { UiState } from '../replay/uiState';
+import { useElementSize } from '../replay/useElementSize';
+import { usePlaybackClock } from '../replay/usePlaybackClock';
+import { useSessionStore } from '../store/sessionStore';
+import { LapBoard } from '../telemetry/LapBoard';
+import { LapPicker } from '../telemetry/LapPicker';
+import { LapTransport } from '../telemetry/LapTransport';
+import { bestLaps } from '../telemetry/lapUtils';
+import { TelemetryCharts } from '../telemetry/TelemetryCharts';
+import { dominanceOverlays, minisectorDominance, MINISECTORS, pathBetween } from '../telemetry/trackOverlays';
+import type { LapSpec } from '../telemetry/useLapTraces';
+import { lapKey, useLapTraces } from '../telemetry/useLapTraces';
 
-const CHANNELS = ['track-map', 'delta', 'speed', 'throttle', 'brake', 'gear'] as const;
-type Channel = typeof CHANNELS[number];
+// three.js only downloads when the 3D view is first opened (shared with the race replay).
+const Replay3DView = lazy(() => import('../replay/three/Replay3DView'));
 
-const CHANNEL_CONFIG: Record<Channel, { label: string; unit: string; min: number; max: number; colour: string }> = {
-  delta: { label: 'Time Delta', unit: 's', min: -1.0, max: 1.0, colour: 'var(--text-primary)' },
-  speed: { label: 'Speed', unit: 'km/h', min: 0, max: 370, colour: 'var(--text-primary)' },
-  throttle: { label: 'Throttle', unit: '%', min: 0, max: 100, colour: 'var(--accent-teal)' },
-  brake: { label: 'Brake', unit: '%', min: 0, max: 1, colour: 'var(--accent-red)' },
-  gear: { label: 'Gear', unit: '', min: 0, max: 8, colour: 'var(--accent-amber)' },
-  'track-map': { label: 'Track Dominance', unit: '', min: 0, max: 0, colour: 'var(--text-primary)' },
+const VIEW_STORAGE_KEY = 'pitwall_telemetry_view';
+const NO_BATTLES = new Set<string>();
+
+const SHORTCUTS: [string, string][] = [
+  ['Space', 'Play / pause'],
+  ['← / →', 'Back / forward 1 s (Shift: 0.1 s)'],
+  ['1 – 4', 'Follow that lap'],
+  ['[ / ]', 'Follow the previous / next lap'],
+  ['V', 'Next view: map, follow, 3D'],
+  ['C', 'Next 3D camera'],
+  ['H', 'Heading-up (follow view)'],
+  ['− / =', 'Zoom out / in (follow view)'],
+  ['M', 'Minisector dominance on the map'],
+  ['L', 'Lap labels'],
+  ['Esc', 'Reset the chart zoom'],
+];
+
+const overlayNoteStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 8,
+  top: 8,
+  fontSize: 'var(--fs-xs)',
+  color: 'var(--text-secondary)',
+  background: 'var(--bg-panel)',
+  padding: '2px 8px',
+  borderRadius: 'var(--radius-sm)',
+  pointerEvents: 'none',
 };
 
-const getCompoundShort = (compound: string | null) => {
-  if (!compound) return '?';
-  const c = compound.toUpperCase();
-  if (c === 'SOFT') return 'S';
-  if (c === 'MEDIUM') return 'M';
-  if (c === 'HARD') return 'H';
-  if (c === 'INTERMEDIATE') return 'I';
-  if (c === 'WET') return 'W';
-  return '?';
+const mapHeight = 'clamp(340px, 54vh, 620px)';
+
+/** Beside the map: the timing board above the picker; below the map on narrow screens, side by side. */
+const sideColumnStyle: React.CSSProperties = {
+  flex: '1 1 380px',
+  minWidth: 320,
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'flex-start',
+  alignContent: 'flex-start',
+  gap: 'var(--space-4)',
 };
+
+function isTyping(e: KeyboardEvent): boolean {
+  const tag = (e.target as HTMLElement | null)?.tagName;
+  return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+}
+
+/** One colour per selected lap: the team colour, a lighter or darker shade for repeats. */
+function lapColours(specs: LapSpec[], teams: Map<string, string | null>): Map<string, string> {
+  const seen = new Map<string, number>();
+  const out = new Map<string, string>();
+  for (const s of specs) {
+    const base = getDriverColour(s.driver, teams.get(s.driver));
+    const k = seen.get(base) ?? 0;
+    seen.set(base, k + 1);
+    out.set(lapKey(s), colourVariant(base, k));
+  }
+  return out;
+}
+
+interface Keyed<T> {
+  key: string;
+  data?: T;
+  error?: string;
+}
 
 const TelemetryPage: React.FC = () => {
-  const { activeSessionKey, sessions } = useSessionStore();
-  const session = sessions.find(s => s.session_key === activeSessionKey);
-
-  const [allLaps, setAllLaps] = useState<LapData[]>([]);
-  const [circuit, setCircuit] = useState<CornerData[]>([]);
-
-  const [driver1, setDriver1] = useState('');
-  const [lapNumber1, setLapNumber1] = useState<number | ''>('');
-  
-  const [driver2, setDriver2] = useState('');
-  const [lapNumber2, setLapNumber2] = useState<number | ''>('');
-
-  const [tel1, setTel1] = useState<TelemetryResponse | null>(null);
-  const [tel2, setTel2] = useState<TelemetryResponse | null>(null);
-
-  const [activeChannels, setActiveChannels] = useState<Set<Channel>>(new Set(['track-map', 'delta', 'speed', 'throttle', 'brake', 'gear']));
-  
-  const [loadingLaps, setLoadingLaps] = useState(false);
-  const [loadingTel, setLoadingTel] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [hoverX, setHoverX] = useState<number | null>(null);
-  const [hoverY, setHoverY] = useState<number | null>(null);
-  
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackTime, setPlaybackTime] = useState<number>(0);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const lastTimeRef = useRef<number | null>(null);
-  const reqRef = useRef<number | null>(null);
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
-
-  const maxTime = useMemo(() => {
-    let mt = 0;
-    if (tel1 && tel1.data.length) mt = Math.max(mt, tel1.data[tel1.data.length - 1].time || 0);
-    if (tel2 && tel2.data.length) mt = Math.max(mt, tel2.data[tel2.data.length - 1].time || 0);
-    return mt;
-  }, [tel1, tel2]);
-
-  useEffect(() => {
-    const animate = (time: number) => {
-      if (lastTimeRef.current != null) {
-        const dt = (time - lastTimeRef.current) / 1000;
-        setPlaybackTime(prev => {
-          const next = prev + dt * playbackSpeed;
-          if (next >= maxTime && maxTime > 0) {
-            setIsPlaying(false);
-            return maxTime;
-          }
-          return next;
-        });
-      }
-      lastTimeRef.current = time;
-      reqRef.current = requestAnimationFrame(animate);
-    };
-
-    if (isPlaying) {
-      lastTimeRef.current = performance.now();
-      reqRef.current = requestAnimationFrame(animate);
-    } else {
-      if (reqRef.current) cancelAnimationFrame(reqRef.current);
-      lastTimeRef.current = null;
-    }
-    return () => {
-      if (reqRef.current) cancelAnimationFrame(reqRef.current);
-    };
-  }, [isPlaying, playbackSpeed, maxTime]);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver(entries => {
-      for (let entry of entries) {
-        setDimensions({
-          width: entry.contentRect.width,
-          height: entry.contentRect.height
-        });
-      }
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [tel1, tel2]); // Re-observe if elements change
+  const { activeSessionKey, activeSession } = useSessionStore();
+  const sessionKey = activeSessionKey ?? '';
+  const [lapsState, setLapsState] = useState<Keyed<LapData[]> | null>(null);
+  const [selection, setSelection] = useState<{ session: string; specs: LapSpec[] } | null>(null);
 
   useEffect(() => {
     if (!activeSessionKey) return;
-    setLoadingLaps(true);
-    setError(null);
-    
-    Promise.all([
-      api.getLaps(activeSessionKey),
-      api.getCircuitInfo(activeSessionKey).catch(() => [] as CornerData[])
-    ])
-      .then(([lapData, circuitData]) => {
-        setAllLaps(lapData);
-        setCircuit(circuitData);
-      })
-      .catch(err => setError(err.message))
-      .finally(() => setLoadingLaps(false));
+    const key = activeSessionKey;
+    let cancelled = false;
+    api
+      .getLaps(key)
+      .then(data => !cancelled && setLapsState({ key, data }))
+      .catch((err: Error) => !cancelled && setLapsState({ key, error: err.message }));
+    return () => {
+      cancelled = true;
+    };
   }, [activeSessionKey]);
 
-  const drivers = useMemo(() => {
-    const set = new Set<string>();
-    allLaps.forEach(l => set.add(l.driver));
-    return Array.from(set).sort();
-  }, [allLaps]);
+  const current = lapsState?.key === sessionKey ? lapsState : null;
+  const laps = current?.data;
 
-  const getDriverLaps = (drv: string) => {
-    return allLaps
-      .filter(l => l.driver === drv && l.lap_time != null && l.lap_time > 0)
-      .sort((a, b) => a.lap_number - b.lap_number);
-  };
+  // Until the user picks, compare the two fastest drivers' best laps.
+  const defaults = useMemo<LapSpec[]>(
+    () => (laps ? bestLaps(laps).slice(0, 2).map(b => ({ driver: b.driver, lap: b.best.lap_number })) : []),
+    [laps]
+  );
+  const specs = selection?.session === sessionKey ? selection.specs : defaults;
+  const teams = useMemo(() => new Map((laps ?? []).map(l => [l.driver, l.team])), [laps]);
+  const colours = useMemo(() => lapColours(specs, teams), [specs, teams]);
 
-  const handleDriverChange = (driverIndex: 1 | 2, drv: string) => {
-    const setDriver = driverIndex === 1 ? setDriver1 : setDriver2;
-    const setLapNum = driverIndex === 1 ? setLapNumber1 : setLapNumber2;
-    
-    setDriver(drv);
-    if (drv) {
-      const laps = getDriverLaps(drv);
-      const best = laps.length ? laps.reduce((a, b) => (a.lap_time! < b.lap_time! ? a : b)) : null;
-      setLapNum(best ? best.lap_number : '');
-    } else {
-      setLapNum('');
-    }
-  };
+  const store = useLapTraces(sessionKey, specs);
+  const loadingKeys = useMemo(
+    () => new Set(specs.map(lapKey).filter(k => !store.traces.has(k) && !store.errors.has(k))),
+    [specs, store]
+  );
+  const loadedKeys = specs.map(lapKey).filter(k => store.traces.has(k));
+  const readyId = loadingKeys.size === 0 && loadedKeys.length > 0 ? loadedKeys.join('|') : '';
 
-  const handleLoad = async () => {
-    if (!activeSessionKey) return;
-    setLoadingTel(true);
-    setError(null);
-    setTel1(null);
-    setTel2(null);
+  const meta = useMemo(
+    () => ({
+      sessionKey,
+      eventName: activeSession?.event_name ?? '',
+      sessionName: activeSession ? formatSessionType(activeSession.session_type) : '',
+    }),
+    [sessionKey, activeSession]
+  );
 
-    try {
-      const promises = [];
-      if (driver1 && lapNumber1) {
-        promises.push(api.getTelemetry(activeSessionKey, driver1, String(lapNumber1)).then(setTel1));
-      }
-      if (driver2 && lapNumber2) {
-        promises.push(api.getTelemetry(activeSessionKey, driver2, String(lapNumber2)).then(setTel2));
-      }
-      await Promise.all(promises);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoadingTel(false);
-    }
-  };
+  const comparison = useMemo<LapComparison | null>(() => {
+    if (!readyId) return null;
+    const compared: CompareLap[] = readyId.split('|').map(key => ({
+      key,
+      colour: colours.get(key) ?? 'var(--text-secondary)',
+      trace: store.traces.get(key)!,
+    }));
+    return buildLapComparison(compared, meta);
+  }, [readyId, colours, store.traces, meta]);
 
-  const toggleChannel = (ch: Channel) => {
-    setActiveChannels(prev => {
-      const next = new Set(prev);
-      if (next.has(ch)) { if (next.size > 1) next.delete(ch); }
-      else next.add(ch);
-      return next;
-    });
-  };
-
-  const activeLap1 = useMemo(() => allLaps.find(l => l.driver === driver1 && l.lap_number === lapNumber1) || null, [allLaps, driver1, lapNumber1]);
-  const activeLap2 = useMemo(() => allLaps.find(l => l.driver === driver2 && l.lap_number === lapNumber2) || null, [allLaps, driver2, lapNumber2]);
-
-  const driverColours = useMemo(() => {
-    const defaultC1 = tel1 ? getDriverColour(tel1.driver, activeLap1?.team) : '#ff0000';
-    const defaultC2 = tel2 ? getDriverColour(tel2.driver, activeLap2?.team) : '#00d5ff';
-
-    if (!tel1 || !tel2) return { color1: defaultC1, color2: defaultC2 };
-
-    const team1 = activeLap1?.team || DRIVER_TEAMS[tel1.driver];
-    const team2 = activeLap2?.team || DRIVER_TEAMS[tel2.driver];
-
-    if ((team1 && team2 && team1 === team2) || defaultC1 === defaultC2) {
-      return { color1: defaultC1, color2: adjustColorLightness(defaultC2, 25) };
-    }
-    return { color1: defaultC1, color2: defaultC2 };
-  }, [tel1, tel2, activeLap1, activeLap2]);
-
-  const maxDist = useMemo(() => {
-    let m = 1;
-    if (tel1) m = Math.max(m, ...tel1.data.map(d => d.distance || 0));
-    if (tel2) m = Math.max(m, ...tel2.data.map(d => d.distance || 0));
-    return m;
-  }, [tel1, tel2]);
-
-  const deltaTrace = useMemo(() => {
-    if (!tel1 || !tel2 || !tel1.data.length || !tel2.data.length) return null;
-    
-    const d1 = tel1.data.filter(d => d.distance != null && d.time != null);
-    const d2 = tel2.data.filter(d => d.distance != null && d.time != null);
-    if (!d1.length || !d2.length) return null;
-
-    const interpolateTime = (x: number) => {
-      let rightIdx = d2.findIndex(d => d.distance! >= x);
-      if (rightIdx === -1) return d2[d2.length - 1].time!;
-      if (rightIdx === 0) return d2[0].time!;
-      const left = d2[rightIdx - 1];
-      const right = d2[rightIdx];
-      const dx = right.distance! - left.distance!;
-      if (dx === 0) return left.time!;
-      const ratio = (x - left.distance!) / dx;
-      return left.time! + ratio * (right.time! - left.time!);
-    };
-
-    let minDelta = 0;
-    let maxDelta = 0;
-
-    const points = d1.map(p1 => {
-      const t2 = interpolateTime(p1.distance!);
-      const dt = t2 - p1.time!;
-      if (dt < minDelta) minDelta = dt;
-      if (dt > maxDelta) maxDelta = dt;
-      return { distance: p1.distance!, delta: dt };
-    });
-
-    const range = Math.max(Math.abs(minDelta), Math.abs(maxDelta), 0.5) * 1.2;
-    return { points, min: -range, max: range };
-  }, [tel1, tel2]);
-
-  const minisectorData = useMemo(() => {
-    if (!tel1 || !tel2) return null;
-    const num_minisectors = 25;
-    const ms_len = maxDist / num_minisectors;
-    
-    const getMeans = (tel: TelemetryResponse) => {
-      const sums = new Array(num_minisectors + 1).fill(0);
-      const counts = new Array(num_minisectors + 1).fill(0);
-      tel.data.forEach(p => {
-        if (p.distance == null || p.speed == null) return;
-        const ms = Math.floor(p.distance / ms_len) + 1;
-        if (ms >= 0 && ms <= num_minisectors) {
-          sums[ms] += p.speed;
-          counts[ms]++;
-        }
-      });
-      return sums.map((s, i) => counts[i] > 0 ? s / counts[i] : 0);
-    };
-    
-    const means1 = getMeans(tel1);
-    const means2 = getMeans(tel2);
-    
-    const fastest = means1.map((s1, i) => s1 >= means2[i] ? 1 : 2);
-    
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    tel1.data.forEach(p => {
-      if (p.x != null && p.y != null) {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.y > maxY) maxY = p.y;
-      }
-    });
-
-    return { ms_len, fastest, minX, maxX, minY, maxY, basePoints: tel1.data };
-  }, [tel1, tel2, maxDist]);
+  // While a newly picked lap loads, keep showing the comparison already on screen.
+  const [shown, setShown] = useState<LapComparison | null>(null);
+  if (comparison && comparison !== shown) setShown(comparison);
+  const display =
+    comparison ??
+    (shown && shown.replay.sessionKey === sessionKey && loadingKeys.size > 0 ? shown : null);
 
   if (!activeSessionKey) {
-    return (
-      <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <h2 style={{ marginBottom: 'var(--space-4)' }}>No Session Selected</h2>
-      </div>
-    );
+    return <div className="state-empty">Select a session to compare laps</div>;
+  }
+  if (current?.error) {
+    return <div className="state-error">Couldn't load laps. {current.error.replace(/^API Error \d+: /, '')}</div>;
   }
 
-  const chartW = dimensions.width;
-  const activeArr = Array.from(activeChannels);
-  const padL = 50, padR = 10, padT = 15, padB = 20;
-  
-  const baseSvgH = Math.max(200, Math.floor((dimensions.height) / activeArr.length));
-  const plotW = chartW - padL - padR;
+  const picker = laps ? (
+    <LapPicker
+      laps={laps}
+      selected={specs}
+      colours={colours}
+      loading={loadingKeys}
+      errors={store.errors}
+      onChange={next => setSelection({ session: sessionKey, specs: next })}
+    />
+  ) : (
+    <div className="state-loading" style={{ padding: 0 }}>
+      <div className="skeleton skeleton--bar" style={{ width: '100%' }} />
+      <div className="skeleton skeleton--bar" style={{ width: '100%' }} />
+    </div>
+  );
 
-  const interpolateByDistance = (tel: TelemetryResponse | null, dist: number) => {
-    if (!tel || !tel.data.length || dist < 0 || dist > maxDist) return null;
-    if (dist <= (tel.data[0].distance || 0)) return tel.data[0];
-    if (dist >= (tel.data[tel.data.length - 1].distance || 0)) return tel.data[tel.data.length - 1];
-
-    let left = 0;
-    let right = tel.data.length - 1;
-    while (left <= right) {
-      const mid = Math.floor((left + right) / 2);
-      if ((tel.data[mid].distance || 0) < dist) {
-        left = mid + 1;
-      } else {
-        right = mid - 1;
-      }
-    }
-    const p1 = tel.data[right];
-    const p2 = tel.data[left];
-    if (!p1 || !p2 || p1.distance == null || p2.distance == null || p1.distance === p2.distance) return p1 || p2;
-    const ratio = (dist - p1.distance) / (p2.distance - p1.distance);
-    const lerp = (v1: number | null, v2: number | null) => (v1 == null || v2 == null) ? (v1 ?? v2) : v1 + (v2 - v1) * ratio;
-    return {
-      distance: dist, time: lerp(p1.time, p2.time), speed: lerp(p1.speed, p2.speed),
-      throttle: lerp(p1.throttle, p2.throttle), brake: lerp(p1.brake, p2.brake),
-      gear: p1.gear, rpm: lerp(p1.rpm, p2.rpm), drs: p1.drs, x: lerp(p1.x, p2.x), y: lerp(p1.y, p2.y)
-    } as TelemetryPoint;
-  };
-
-  const isReplayActive = isPlaying || playbackTime > 0;
-
-  const interpolateByTime = (tel: TelemetryResponse | null, t: number) => {
-    if (!tel || !tel.data.length) return null;
-    if (t <= (tel.data[0].time || 0)) return tel.data[0];
-    if (t >= (tel.data[tel.data.length - 1].time || 0)) return tel.data[tel.data.length - 1];
-
-    let left = 0;
-    let right = tel.data.length - 1;
-    while (left <= right) {
-      const mid = Math.floor((left + right) / 2);
-      if ((tel.data[mid].time || 0) < t) {
-        left = mid + 1;
-      } else {
-        right = mid - 1;
-      }
-    }
-    const p1 = tel.data[right];
-    const p2 = tel.data[left];
-    if (!p1 || !p2 || p1.time == null || p2.time == null || p1.time === p2.time) return p1 || p2;
-    const ratio = (t - p1.time) / (p2.time - p1.time);
-    const lerp = (v1: number | null, v2: number | null) => (v1 == null || v2 == null) ? (v1 ?? v2) : v1 + (v2 - v1) * ratio;
-    return {
-      distance: lerp(p1.distance, p2.distance), time: t, speed: lerp(p1.speed, p2.speed),
-      throttle: lerp(p1.throttle, p2.throttle), brake: lerp(p1.brake, p2.brake),
-      gear: p1.gear, rpm: lerp(p1.rpm, p2.rpm), drs: p1.drs, x: lerp(p1.x, p2.x), y: lerp(p1.y, p2.y)
-    } as TelemetryPoint;
-  };
-
-  const hoverDist = hoverX !== null ? ((hoverX - padL) / plotW) * maxDist : null;
-  const hoverPt1 = isReplayActive ? interpolateByTime(tel1, playbackTime) : (hoverDist !== null ? interpolateByDistance(tel1, hoverDist) : null);
-  const hoverPt2 = isReplayActive ? interpolateByTime(tel2, playbackTime) : (hoverDist !== null ? interpolateByDistance(tel2, hoverDist) : null);
-
-  const hoverDelta = useMemo(() => {
-    if (!deltaTrace) return null;
-    
-    const targetDist = isReplayActive ? hoverPt1?.distance : hoverDist;
-    if (targetDist == null) return null;
-
-    if (targetDist <= deltaTrace.points[0].distance) return deltaTrace.points[0];
-    if (targetDist >= deltaTrace.points[deltaTrace.points.length - 1].distance) return deltaTrace.points[deltaTrace.points.length - 1];
-
-    let left = 0;
-    let right = deltaTrace.points.length - 1;
-    while (left <= right) {
-      const mid = Math.floor((left + right) / 2);
-      if (deltaTrace.points[mid].distance < targetDist) {
-        left = mid + 1;
-      } else {
-        right = mid - 1;
-      }
-    }
-
-    const p1 = deltaTrace.points[right];
-    const p2 = deltaTrace.points[left];
-    if (!p1 || !p2 || p1.distance === p2.distance) return p1 || p2;
-
-    const ratio = (targetDist - p1.distance) / (p2.distance - p1.distance);
-    return {
-      distance: targetDist,
-      delta: p1.delta + (p2.delta - p1.delta) * ratio
-    };
-  }, [deltaTrace, hoverDist, isReplayActive, hoverPt1?.distance]);
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top + containerRef.current.scrollTop;
-    if (x >= padL && x <= padL + plotW) {
-      setHoverX(x);
-      setHoverY(y);
-    } else {
-      setHoverX(null);
-      setHoverY(null);
-    }
-  };
-
-  const renderTraceForChannel = (tel: TelemetryResponse | null, colour: string, ch: Channel, plotH: number) => {
-    if (ch === 'delta') return null;
-    if (!tel || tel.data.length === 0) return null;
-    const cfg = CHANNEL_CONFIG[ch];
-    const points = tel.data
-      .filter(d => d.distance != null && (d as any)[ch] != null)
-      .map(d => {
-        const x = padL + ((d.distance! / maxDist) * plotW);
-        const val = Math.min(Math.max((d as any)[ch] as number, cfg.min), cfg.max);
-        const y = padT + plotH - ((val - cfg.min) / (cfg.max - cfg.min)) * plotH;
-        return `${x},${y}`;
-      });
-    if (points.length < 2) return null;
-    return (
-      <polyline
-        key={`${tel.driver}-${ch}`}
-        points={points.join(' ')}
-        fill="none"
-        stroke={colour}
-        strokeWidth={1.5}
-        opacity={0.85}
-      />
-    );
-  };
-
-  const renderLapInfo = (lap: LapData | null, tel: TelemetryResponse | null, colour: string, label: string) => {
-    if (!lap && !tel) return <div style={{ flex: 1, padding: '8px', background: 'var(--bg-elevated)', borderRadius: '4px', opacity: 0.5 }}>{label} not loaded</div>;
-    return (
-      <div style={{ flex: 1, padding: '8px 12px', borderLeft: `4px solid ${colour}`, background: 'var(--bg-elevated)', borderRadius: '4px', fontFamily: 'var(--font-mono)' }}>
-        <div style={{ fontWeight: 700, color: colour, marginBottom: 4, fontSize: 'var(--fs-sm)' }}>{tel?.driver || lap?.driver} - Lap {lap?.lap_number || 'N/A'} ({getCompoundShort(lap?.compound || null)})</div>
-        <div style={{ display: 'flex', gap: '16px', color: 'var(--text-secondary)', fontSize: 'var(--fs-sm)' }}>
-          <span><span style={{color: 'var(--text-tertiary)'}}>TIME</span> {formatLapTime(lap?.lap_time)}</span>
-          <span><span style={{color: 'var(--text-tertiary)'}}>S1</span> {formatSectorTime(lap?.sector1_time)}</span>
-          <span><span style={{color: 'var(--text-tertiary)'}}>S2</span> {formatSectorTime(lap?.sector2_time)}</span>
-          <span><span style={{color: 'var(--text-tertiary)'}}>S3</span> {formatSectorTime(lap?.sector3_time)}</span>
-        </div>
-      </div>
-    );
-  };
+  const errorNotes = specs
+    .map(lapKey)
+    .filter(k => store.errors.has(k))
+    .map(k => `${k}: ${store.errors.get(k)}`);
+  const loadingNote = loadingKeys.size > 0 ? `Loading telemetry for ${[...loadingKeys].join(', ')}…` : null;
 
   return (
-    <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--fs-2xl)', fontWeight: 600, color: 'var(--text-primary)' }}>
-            Telemetry Analysis
-          </h1>
-          <p style={{ color: 'var(--text-tertiary)', marginTop: 'var(--space-1)' }}>
-            {session?.event_name} {session?.year} — {session?.session_type}
-          </p>
+    <div style={pageStyle}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <h1 style={{ fontSize: 'var(--fs-2xl)' }}>Telemetry</h1>
+          <div className="text-secondary" style={{ fontSize: 'var(--fs-md)' }}>
+            {activeSession?.event_name} {activeSession?.year} — {activeSession ? formatSessionType(activeSession.session_type) : ''}
+          </div>
         </div>
+        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)' }}>
+          Up to four laps · the first is the reference
+        </span>
       </div>
 
-      {/* Controls */}
-      <div style={{ background: 'var(--surface-primary)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 'var(--space-6)', flexWrap: 'wrap', marginBottom: (tel1 || tel2) ? 'var(--space-4)' : '0' }}>
-          
-          {/* Trace 1 Controls */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <div style={{ fontWeight: 600, color: 'var(--text-secondary)', width: '60px' }}>Trace 1</div>
-            <select value={driver1} onChange={e => handleDriverChange(1, e.target.value)} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-default)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)' }}>
-              <option value="">Driver</option>
-              {drivers.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <select value={lapNumber1} onChange={e => setLapNumber1(Number(e.target.value))} disabled={!driver1} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-default)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', minWidth: '150px' }}>
-              <option value="">Select Lap</option>
-              {getDriverLaps(driver1).map(l => (
-                <option key={l.lap_number} value={l.lap_number}>Lap {l.lap_number} — {formatLapTime(l.lap_time)} ({getCompoundShort(l.compound)})</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Trace 2 Controls */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <div style={{ fontWeight: 600, color: 'var(--text-secondary)', width: '60px' }}>Trace 2</div>
-            <select value={driver2} onChange={e => handleDriverChange(2, e.target.value)} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-default)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)' }}>
-              <option value="">Driver</option>
-              {drivers.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <select value={lapNumber2} onChange={e => setLapNumber2(Number(e.target.value))} disabled={!driver2} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-default)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', minWidth: '150px' }}>
-              <option value="">Select Lap</option>
-              {getDriverLaps(driver2).map(l => (
-                <option key={l.lap_number} value={l.lap_number}>Lap {l.lap_number} — {formatLapTime(l.lap_time)} ({getCompoundShort(l.compound)})</option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '16px', alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {CHANNELS.map(ch => (
-                <button key={ch} onClick={() => toggleChannel(ch)} style={{
-                  padding: '4px 12px', borderRadius: 'var(--radius-sm)', fontSize: 'var(--fs-sm)',
-                  fontFamily: 'var(--font-mono)', fontWeight: 500,
-                  background: activeChannels.has(ch) ? 'var(--bg-active)' : 'transparent',
-                  color: activeChannels.has(ch) ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                  border: `1px solid ${activeChannels.has(ch) ? 'var(--border-emphasis)' : 'var(--border-default)'}`,
-                  cursor: 'pointer', transition: 'all 0.15s',
-                }}>
-                  {CHANNEL_CONFIG[ch].label}
-                </button>
-              ))}
-            </div>
-            
-            <button className="btn btn--primary" onClick={handleLoad} disabled={loadingTel || (!driver1 && !driver2) || (!!driver1 && !lapNumber1) || (!!driver2 && !lapNumber2)}>
-              {loadingTel ? 'Loading...' : 'Load Telemetry'}
-            </button>
-          </div>
-
-        </div>
-
-        {/* Playback Controls Row */}
-        {(tel1 || tel2) && (
-          <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--border-subtle)' }}>
-            <button className="btn btn--outline" onClick={() => setIsPlaying(!isPlaying)} style={{ width: '80px' }}>
-              {isPlaying ? 'Pause' : 'Play'}
-            </button>
-            <button className="btn btn--outline" onClick={() => { setIsPlaying(false); setPlaybackTime(0); }}>
-              Stop
-            </button>
-            <select value={playbackSpeed} onChange={e => setPlaybackSpeed(Number(e.target.value))} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-default)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)' }}>
-              <option value={1}>1x Speed</option>
-              <option value={2}>2x Speed</option>
-              <option value={5}>5x Speed</option>
-              <option value={10}>10x Speed</option>
-            </select>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{playbackTime.toFixed(1)}s</span>
-              <input 
-                type="range" 
-                min={0} 
-                max={maxTime || 100} 
-                step={0.1} 
-                value={playbackTime} 
-                onChange={e => {
-                  setPlaybackTime(Number(e.target.value));
-                  if (isPlaying) setIsPlaying(false);
-                }}
-                style={{ flex: 1, cursor: 'pointer' }}
-              />
-              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{maxTime.toFixed(1)}s</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {loadingLaps && <div className="state-loading">Loading laps...</div>}
-      {error && <div className="state-error">{error}</div>}
-
-      {/* Info Bar */}
-      {(tel1 || tel2) && (
-        <div style={{ display: 'flex', gap: 'var(--space-4)', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
-          {renderLapInfo(activeLap1, tel1, driverColours.color1, 'Trace 1')}
-          {renderLapInfo(activeLap2, tel2, driverColours.color2, 'Trace 2')}
+      {errorNotes.length > 0 && (
+        <div className="state-error" style={{ padding: 'var(--space-2) var(--space-3)', alignItems: 'flex-start', textAlign: 'left' }}>
+          {errorNotes.map(n => (
+            <div key={n}>Couldn't load {n}</div>
+          ))}
         </div>
       )}
 
-      {/* Charts */}
-      <div 
-        ref={containerRef}
-        style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--surface-primary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', overflowY: 'auto', overflowX: 'hidden' }}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => { setHoverX(null); setHoverY(null); }}
-      >
-        {(tel1 || tel2) ? activeArr.map(ch => {
-          const cfg = CHANNEL_CONFIG[ch];
-          const chHeight = ch === 'track-map' ? Math.max(400, baseSvgH * 1.8) : baseSvgH;
-          const plotH = chHeight - padT - padB;
-
-          return (
-            <div key={ch} style={{ position: 'relative', height: chHeight }}>
-              <div style={{ position: 'absolute', top: 5, left: padL + 5, fontSize: 11, fontWeight: 600, color: cfg.colour }}>
-                {cfg.label} <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>({cfg.unit})</span>
+      {display ? (
+        <LapView key={display.laps.map(l => `${l.key}=${l.colour}`).join('|')} comparison={display} picker={picker} note={loadingNote} />
+      ) : (
+        <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div style={{ ...cardStyle, flex: '3 1 560px', height: mapHeight, display: 'flex' }}>
+            {loadingNote || !laps ? (
+              <div className="state-loading" style={{ flex: 1 }}>
+                {loadingNote ?? 'Loading laps…'}
               </div>
-              <svg width={chartW} height={chHeight} style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-                {/* Grid */}
-                {Array.from({ length: 5 }, (_, i) => padT + (plotH * i) / 4).map((y, i) => (
-                  <line key={i} x1={padL} y1={y} x2={padL + plotW} y2={y} stroke="var(--border-default)" strokeDasharray="4,4" />
-                ))}
-                
-                {/* Corner Markers */}
-                {ch !== 'track-map' && circuit.map(corner => {
-                  if (!corner.distance || corner.distance > maxDist) return null;
-                  const cx = padL + (corner.distance / maxDist) * plotW;
-                  return (
-                    <g key={`corner-${corner.number}`}>
-                      <line x1={cx} y1={padT} x2={cx} y2={padT + plotH} stroke="var(--border-default)" strokeDasharray="2,2" strokeOpacity={0.4} />
-                      <text x={cx} y={padT - 4} fill="var(--text-tertiary)" fontSize={9} textAnchor="middle">{corner.number}</text>
-                    </g>
-                  );
-                })}
-
-                {/* Traces */}
-                {ch === 'track-map' && minisectorData ? (
-                  <g>
-                    {minisectorData.basePoints.map((p, i, arr) => {
-                      if (i === 0) return null;
-                      const prev = arr[i - 1];
-                      if (p.x == null || p.y == null || prev.x == null || prev.y == null) return null;
-                      
-                      const ms = Math.floor((p.distance || 0) / minisectorData.ms_len) + 1;
-                      const fastestDriver = minisectorData.fastest[ms] || 1;
-                      const color = fastestDriver === 1 ? driverColours.color1 : driverColours.color2;
-                      
-                      const rangeX = minisectorData.maxX - minisectorData.minX;
-                      const rangeY = minisectorData.maxY - minisectorData.minY;
-                      const scale = Math.min(plotW / (rangeX || 1), plotH / (rangeY || 1)) * 0.9;
-                      
-                      const cx = padL + plotW/2;
-                      const cy = padT + plotH/2;
-                      
-                      const mapX = (x: number) => cx + (x - (minisectorData.minX + rangeX/2)) * scale;
-                      const mapY = (y: number) => cy - (y - (minisectorData.minY + rangeY/2)) * scale;
-                      
-                      return (
-                        <line
-                          key={`tm-${i}`}
-                          x1={mapX(prev.x)}
-                          y1={mapY(prev.y)}
-                          x2={mapX(p.x)}
-                          y2={mapY(p.y)}
-                          stroke={color}
-                          strokeWidth={4}
-                          strokeLinecap="round"
-                        />
-                      );
-                    })}
-                    <g transform={`translate(${padL + 10}, ${padT + plotH - 10})`}>
-                      <circle cx={0} cy={0} r={4} fill={driverColours.color1} />
-                      <text x={8} y={3} fontSize={10} fill="var(--text-secondary)">{tel1?.driver} Faster</text>
-                      
-                      <circle cx={100} cy={0} r={4} fill={driverColours.color2} />
-                      <text x={108} y={3} fontSize={10} fill="var(--text-secondary)">{tel2?.driver} Faster</text>
-                    </g>
-                    {(() => {
-                      const rangeX = minisectorData.maxX - minisectorData.minX;
-                      const rangeY = minisectorData.maxY - minisectorData.minY;
-                      const scale = Math.min(plotW / (rangeX || 1), plotH / (rangeY || 1)) * 0.9;
-                      const cx = padL + plotW/2;
-                      const cy = padT + plotH/2;
-                      const mapX = (x: number) => cx + (x - (minisectorData.minX + rangeX/2)) * scale;
-                      const mapY = (y: number) => cy - (y - (minisectorData.minY + rangeY/2)) * scale;
-                      return (
-                        <g>
-                          {hoverPt1?.x != null && hoverPt1?.y != null && (
-                            <circle cx={mapX(hoverPt1.x)} cy={mapY(hoverPt1.y)} r={6} fill={driverColours.color1} stroke="var(--surface-primary)" strokeWidth={2} />
-                          )}
-                          {hoverPt2?.x != null && hoverPt2?.y != null && (
-                            <circle cx={mapX(hoverPt2.x)} cy={mapY(hoverPt2.y)} r={6} fill={driverColours.color2} stroke="var(--surface-primary)" strokeWidth={2} />
-                          )}
-                        </g>
-                      );
-                    })()}
-                  </g>
-                ) : ch === 'delta' && deltaTrace ? (
-                  <g>
-                    <line x1={padL} y1={padT + plotH - ((0 - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} x2={padL + plotW} y2={padT + plotH - ((0 - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} stroke="var(--text-tertiary)" strokeDasharray="2,2" />
-                    <polyline
-                      points={deltaTrace.points.map(p => {
-                        const x = padL + ((p.distance / maxDist) * plotW);
-                        const val = Math.min(Math.max(p.delta, deltaTrace.min), deltaTrace.max);
-                        const y = padT + plotH - ((val - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH;
-                        return `${x},${y}`;
-                      }).join(' ')}
-                      fill="none"
-                      stroke="var(--text-primary)"
-                      strokeWidth={1.5}
-                      opacity={0.85}
-                    />
-                  </g>
-                ) : (
-                  <g>
-                    {renderTraceForChannel(tel1, driverColours.color1, ch, plotH)}
-                    {renderTraceForChannel(tel2, driverColours.color2, ch, plotH)}
-                  </g>
-                )}
-                
-                {/* Playback Dots on Traces */}
-                {isReplayActive && ch !== 'track-map' && ch !== 'delta' && (
-                  <g>
-                    {tel1 && hoverPt1 && hoverPt1.distance != null && (hoverPt1 as any)[ch] != null && (
-                      <circle 
-                        cx={padL + (hoverPt1.distance / maxDist) * plotW} 
-                        cy={padT + plotH - ((Math.min(Math.max((hoverPt1 as any)[ch] as number, cfg.min), cfg.max) - cfg.min) / (cfg.max - cfg.min)) * plotH} 
-                        r={4} fill={driverColours.color1} stroke="var(--surface-primary)" strokeWidth={1.5} 
-                      />
-                    )}
-                    {tel2 && hoverPt2 && hoverPt2.distance != null && (hoverPt2 as any)[ch] != null && (
-                      <circle 
-                        cx={padL + (hoverPt2.distance / maxDist) * plotW} 
-                        cy={padT + plotH - ((Math.min(Math.max((hoverPt2 as any)[ch] as number, cfg.min), cfg.max) - cfg.min) / (cfg.max - cfg.min)) * plotH} 
-                        r={4} fill={driverColours.color2} stroke="var(--surface-primary)" strokeWidth={1.5} 
-                      />
-                    )}
-                  </g>
-                )}
-                
-                {isReplayActive && ch === 'delta' && hoverDelta && hoverDelta.distance != null && deltaTrace && (
-                  <circle 
-                    cx={padL + (hoverDelta.distance / maxDist) * plotW} 
-                    cy={padT + plotH - ((Math.min(Math.max(hoverDelta.delta, deltaTrace.min), deltaTrace.max) - deltaTrace.min) / (deltaTrace.max - deltaTrace.min)) * plotH} 
-                    r={4} fill="var(--text-primary)" stroke="var(--surface-primary)" strokeWidth={1.5} 
-                  />
-                )}
-                
-                {/* Y-axis labels */}
-                {/* Y-axis labels */}
-                {ch !== 'track-map' && (
-                  <g>
-                    <text x={padL - 8} y={padT + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.max.toFixed(2) : cfg.max}</text>
-                    <text x={padL - 8} y={padT + plotH + 4} fill="var(--text-tertiary)" fontSize={10} textAnchor="end" alignmentBaseline="middle">{ch === 'delta' && deltaTrace ? deltaTrace.min.toFixed(2) : cfg.min}</text>
-                  </g>
-                )}
-
-                {/* Hover Crosshair */}
-                {!isReplayActive && hoverX !== null && ch !== 'track-map' && (
-                  <line x1={hoverX} y1={padT} x2={hoverX} y2={padT + plotH} stroke="var(--accent-teal)" strokeWidth={1} opacity={0.5} />
-                )}
-              </svg>
-            </div>
-          );
-        }) : (
-          !loadingTel && <div className="state-empty" style={{ height: '100%' }}>Select traces and load telemetry to begin analysis</div>
-        )}
-
-        {/* Hover Tooltip */}
-        {(hoverX !== null || isReplayActive) && hoverY !== null && (tel1 || tel2) && (
-          <div style={{
-            position: 'absolute', 
-            left: (hoverX !== null ? hoverX : padL + plotW/2) + 15 > chartW - 150 ? (hoverX !== null ? hoverX : padL + plotW/2) - 160 : (hoverX !== null ? hoverX : padL + plotW/2) + 15, 
-            top: hoverY + 15 > (containerRef.current?.scrollHeight || dimensions.height) - 150 ? hoverY - 200 : hoverY + 15,
-            background: 'var(--bg-elevated)', border: '1px solid var(--border-emphasis)',
-            borderRadius: '6px', padding: '10px', fontSize: '11px', pointerEvents: 'none',
-            zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', minWidth: '120px',
-            fontFamily: 'var(--font-mono)'
-          }}>
-            <div style={{ color: 'var(--text-tertiary)', marginBottom: '8px', borderBottom: '1px solid var(--border-default)', paddingBottom: '4px' }}>
-              {isReplayActive ? (
-                `TIME: ${playbackTime.toFixed(2)}s`
-              ) : (
-                `DIST: ${hoverX !== null ? Math.round((hoverX - padL) / plotW * maxDist) : 0}m`
-              )}
-            </div>
-            {tel1 && hoverPt1 && (
-              <div style={{ color: driverColours.color1, marginBottom: tel2 ? '8px' : '0' }}>
-                <div style={{ fontWeight: 700, marginBottom: '4px' }}>{tel1.driver} (L{activeLap1?.lap_number})</div>
-                {activeArr.filter(c => c !== 'delta' && c !== 'track-map').map(ch => (
-                  <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                    <span>{ch.toUpperCase()}:</span>
-                    <span>{['speed', 'throttle', 'brake', 'gear', 'rpm'].includes(ch) ? Math.round((hoverPt1 as any)[ch] as number) : (hoverPt1 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {tel2 && hoverPt2 && (
-              <div style={{ color: driverColours.color2, paddingTop: '8px', borderTop: tel1 ? '1px solid var(--border-default)' : 'none' }}>
-                <div style={{ fontWeight: 700, marginBottom: '4px' }}>{tel2.driver} (L{activeLap2?.lap_number})</div>
-                {activeArr.filter(c => c !== 'delta' && c !== 'track-map').map(ch => (
-                  <div key={ch} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                    <span>{ch.toUpperCase()}:</span>
-                    <span>{['speed', 'throttle', 'brake', 'gear', 'rpm'].includes(ch) ? Math.round((hoverPt2 as any)[ch] as number) : (hoverPt2 as any)[ch]}{CHANNEL_CONFIG[ch].unit}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {deltaTrace && activeArr.includes('delta') && hoverDelta && (
-              <div style={{ color: 'var(--text-primary)', paddingTop: '8px', borderTop: tel1 ? '1px solid var(--border-default)' : 'none' }}>
-                <div style={{ fontWeight: 700, marginBottom: '4px' }}>Time Delta (T2 - T1)</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                  <span>DELTA:</span>
-                  <span style={{ color: hoverDelta.delta > 0 ? 'var(--accent-red)' : 'var(--accent-teal)', fontWeight: 600 }}>
-                    {hoverDelta.delta > 0 ? '+' : ''}{hoverDelta.delta.toFixed(3)}s
-                  </span>
-                </div>
+            ) : (
+              <div className="state-empty" style={{ flex: 1 }}>
+                Pick a lap to start
               </div>
             )}
           </div>
-        )}
-      </div>
+          <div style={sideColumnStyle}>
+            <div style={{ ...cardStyle, flex: '1 1 340px' }}>{picker}</div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+};
+
+/** One comparison: the map, playback, timing board and charts, on their own clock. */
+const LapView: React.FC<{ comparison: LapComparison; picker: React.ReactNode; note: string | null }> = ({
+  comparison,
+  picker,
+  note,
+}) => {
+  const { replay, laps } = comparison;
+  const refKey = laps[0].key;
+  const [ui, dispatch] = useReducer(uiReducer, refKey, focus => initialUiState(focus, VIEW_STORAGE_KEY));
+  const [mapRef, mapSize] = useElementSize<HTMLDivElement>();
+  const [dominance, setDominance] = useState(true);
+  const [range, setRange] = useState<[number, number] | null>(null);
+
+  useEffect(() => persistUiState(ui, VIEW_STORAGE_KEY), [ui]);
+
+  const clock = usePlaybackClock({ tMin: replay.tStart, tMax: replay.tEnd, initialSpeed: 1 });
+  const { toggle, nudge, seek } = clock;
+  const geometry = useMemo(() => buildGeometry(replay), [replay]);
+  const focus = ui.focus && replay.byAbbr.has(ui.focus) ? ui.focus : refKey;
+  const follow = (abbr: string) => dispatch({ type: 'follow', abbr });
+
+  const minisectors = useMemo(() => minisectorDominance(comparison), [comparison]);
+  const wins = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of minisectors) counts.set(m.fastest, (counts.get(m.fastest) ?? 0) + 1);
+    return counts;
+  }, [minisectors]);
+  const showDominance = dominance && laps.length > 1;
+
+  const overlays = useMemo(() => {
+    const out: TrackOverlay[] = [];
+    if (range) {
+      out.push({
+        points: pathBetween(comparison, range[0], range[1]),
+        colour: 'var(--text-primary)',
+        width: 16,
+        opacity: 0.18,
+        title: 'Shown in the charts',
+      });
+    }
+    if (showDominance) out.push(...dominanceOverlays(comparison, minisectors));
+    return out;
+  }, [comparison, minisectors, showDominance, range]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const set = (patch: Partial<UiState>) => dispatch({ type: 'set', patch });
+      const idx = laps.findIndex(l => l.key === focus);
+      if (e.code === 'Space') {
+        e.preventDefault();
+        toggle();
+      } else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        nudge((e.code === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 0.1 : 1));
+      } else if (/^[1-4]$/.test(e.key) && laps[Number(e.key) - 1]) {
+        dispatch({ type: 'follow', abbr: laps[Number(e.key) - 1].key });
+      } else if (e.key === '[' || e.key === ']') {
+        const next = laps[(idx + (e.key === '[' ? -1 : 1) + laps.length) % laps.length];
+        dispatch({ type: 'follow', abbr: next.key });
+      } else if (e.key === 'Escape') {
+        if (ui.help) set({ help: false });
+        else setRange(null);
+      } else if (e.key === 'v' || e.key === 'V') {
+        dispatch({ type: 'cycleView' });
+      } else if (e.key === 'c' || e.key === 'C') {
+        dispatch({ type: 'cycleCamera' });
+      } else if (e.key === 'h' || e.key === 'H') {
+        set({ headingUp: !ui.headingUp });
+      } else if (e.key === '-' || e.key === '_') {
+        dispatch({ type: 'zoom', step: 1 });
+      } else if (e.key === '=' || e.key === '+') {
+        dispatch({ type: 'zoom', step: -1 });
+      } else if (e.key === 'm' || e.key === 'M') {
+        setDominance(v => !v);
+      } else if (e.key === 'l' || e.key === 'L') {
+        set({ labels: !ui.labels });
+      } else if (e.key === '?') {
+        set({ help: !ui.help });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggle, nudge, laps, focus, ui.help, ui.headingUp, ui.labels]);
+
+  const trackProps = {
+    replay,
+    geometry,
+    subscribe: clock.subscribe,
+    focus,
+    rival: null,
+    battles: NO_BATTLES,
+    statusKind: null,
+    overlays,
+    onSelect: follow,
+  };
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div style={{ ...cardStyle, flex: '3 1 560px', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <MapToolbar
+            state={ui}
+            dispatch={dispatch}
+            hasElevation={replay.elevation != null}
+            showDirector={false}
+            showBattles={false}
+            extra={
+              laps.length > 1 && ui.view !== '3d' ? (
+                <button
+                  style={{ ...toggleStyle(dominance), height: 28 }}
+                  onClick={() => setDominance(v => !v)}
+                  aria-pressed={dominance}
+                  title={`Colour the track by the lap that was fastest through each of ${MINISECTORS} minisectors (M)`}
+                >
+                  <Layers size={14} />
+                  Dominance
+                </button>
+              ) : null
+            }
+          />
+          <div ref={mapRef} style={{ height: mapHeight, minWidth: 0, position: 'relative' }}>
+            {mapSize.width > 0 && ui.view !== '3d' && (
+              <ReplayTrack
+                {...trackProps}
+                width={mapSize.width}
+                height={mapSize.height}
+                mode={ui.view === 'follow' ? 'follow' : 'fit'}
+                followAbbr={focus}
+                headingUp={ui.headingUp}
+                zoomWindow={ZOOM_LEVELS[ui.zoomIndex]}
+                showLabels={ui.labels}
+              />
+            )}
+            {mapSize.width > 0 && ui.view === '3d' && (
+              <ErrorBoundary
+                fallback={error => (
+                  <>
+                    <ReplayTrack {...trackProps} width={mapSize.width} height={mapSize.height} showLabels={ui.labels} />
+                    <span style={overlayNoteStyle}>3D view unavailable ({error.message}) — showing the map</span>
+                  </>
+                )}
+              >
+                <Suspense fallback={<div className="state-loading" style={{ height: '100%' }}>Loading 3D view…</div>}>
+                  <Replay3DView
+                    replay={replay}
+                    geometry={geometry}
+                    subscribe={clock.subscribe}
+                    focus={focus}
+                    rival={null}
+                    battles={NO_BATTLES}
+                    camera={ui.camera}
+                    elevation={ui.elevation}
+                    labels={ui.labels}
+                    statusKind={null}
+                    speed={clock.speed}
+                    onSelect={follow}
+                  />
+                </Suspense>
+                {!replay.elevation && <span style={overlayNoteStyle}>Flat track (no elevation data)</span>}
+              </ErrorBoundary>
+            )}
+            {ui.view === 'follow' && mapSize.width > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  bottom: 8,
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  opacity: 0.92,
+                }}
+              >
+                <ReplayTrack {...trackProps} width={170} height={115} showLabels={false} showCorners={false} carRadius={3} />
+              </div>
+            )}
+            {note && <span style={overlayNoteStyle}>{note}</span>}
+            {showDominance && ui.view === 'map' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 8,
+                  bottom: 8,
+                  display: 'flex',
+                  gap: 'var(--space-2)',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  fontSize: 'var(--fs-xs)',
+                  background: 'var(--bg-panel)',
+                  padding: '3px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+                title={`Each lap's share of the ${MINISECTORS} minisectors it was fastest through`}
+              >
+                <span className="text-tertiary">Fastest minisectors</span>
+                {laps.map(l => (
+                  <span key={l.key} className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 10, height: 4, borderRadius: 2, background: l.colour }} />
+                    {l.key} <b>{wins.get(l.key) ?? 0}</b>
+                  </span>
+                ))}
+              </div>
+            )}
+            {ui.help && <ShortcutHelp items={SHORTCUTS} onClose={() => dispatch({ type: 'set', patch: { help: false } })} />}
+          </div>
+          <LapTransport comparison={comparison} clock={clock} />
+        </div>
+
+        <div style={sideColumnStyle}>
+          <div style={{ ...cardStyle, flex: '1 1 340px', padding: 'var(--space-3) 0 0' }}>
+            <div style={{ ...cardTitleStyle, padding: '0 var(--space-3)' }}>Laps</div>
+            <LapBoard comparison={comparison} subscribe={clock.subscribe} focus={focus} onFocus={follow} />
+          </div>
+          <div style={{ ...cardStyle, flex: '1 1 340px' }}>{picker}</div>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <TelemetryCharts
+          comparison={comparison}
+          subscribe={clock.subscribe}
+          focus={focus}
+          onSeek={seek}
+          range={range}
+          onRangeChange={setRange}
+        />
+      </div>
+    </>
   );
 };
 

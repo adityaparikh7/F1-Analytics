@@ -21,6 +21,9 @@ MODELS_DIR = Path(os.getenv("MODELS_DIR", str(PROJECT_ROOT / "data" / "models"))
 # Built race replays (positions + timelines per race), derived on demand from the FastF1
 # cache and served as-is. Safe to delete; each replay is rebuilt the next time it is opened.
 REPLAY_CACHE_DIR = Path(os.getenv("REPLAY_CACHE_DIR", str(PROJECT_ROOT / "data" / "replay")))
+# Replay builds read FastF1 data from its disk cache only (FastF1 >= 3.9 needs an F1TV login for
+# live-timing requests). Set to 1 when credentials are configured to allow network loads.
+REPLAY_FASTF1_ONLINE = os.getenv("REPLAY_FASTF1_ONLINE", "0").lower() in ("1", "true", "yes")
 
 # ── API ────────────────────────────────────────────────────────────────
 API_HOST = os.getenv("API_HOST", "0.0.0.0")

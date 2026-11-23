@@ -7,6 +7,8 @@ Configures CORS, lifespan events, and mounts all routers.
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -21,6 +23,11 @@ from backend.logger import setup_logging
 # Configure logging
 setup_logging(LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+# FastF1 >= 3.9 prompts for F1TV credentials on stdin whenever it is a TTY, which blocks the
+# worker (and every request behind it) when the server is started from a terminal. Detach stdin
+# so it fails fast instead; ingestion then falls back to OpenF1 (see backend/pipeline/openf1.py).
+sys.stdin = open(os.devnull)
 
 
 @asynccontextmanager

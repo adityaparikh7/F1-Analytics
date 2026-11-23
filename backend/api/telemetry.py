@@ -16,6 +16,8 @@ import numpy as np
 import httpx
 import json
 
+from backend.pipeline import lap_trace
+from backend.pipeline.fastf1_cache import FASTF1_LOCK
 from backend.pipeline.ingest import fetch_telemetry, _init_fastf1
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,34 @@ async def get_telemetry(
     }
 
 
+@router.get("/sessions/{session_key}/lap-trace")
+def get_lap_trace(
+    session_key: str,
+    driver: str = Query(..., min_length=1, max_length=3),
+    lap: str = Query("fastest", description="Lap number, or 'fastest'"),
+):
+    """
+    One lap's telemetry in race-replay coordinates, for lap comparison: time from the line,
+    distance, rotated position and elevation (metres), speed, RPM, throttle, brake, gear and
+    DRS as column arrays, plus the lap's time, sectors and tyre, and the track's rotation and
+    corners.
+
+    A plain (non-async) route so FastAPI runs the FastF1 load in its thread pool; the loaded
+    session is kept, so further laps of the same session come back quickly.
+    """
+    try:
+        lap_trace.parse_session_key(session_key)
+    except ValueError:
+        raise HTTPException(400, f"Invalid session_key format: {session_key}")
+    try:
+        return lap_trace.build_lap_trace(session_key, driver, lap)
+    except lap_trace.LapNotFound as exc:
+        raise HTTPException(404, str(exc))
+    except Exception as exc:
+        logger.error("Lap trace failed for %s %s %s: %s", session_key, driver, lap, exc, exc_info=True)
+        raise HTTPException(500, f"Failed to load the lap: {exc}")
+
+
 @router.get("/sessions/{session_key}/top-speeds")
 async def get_top_speeds(
     session_key: str,
@@ -91,8 +121,9 @@ async def get_top_speeds(
 
     try:
         _init_fastf1()
-        session = fastf1.get_session(year, round_number, session_type)
-        session.load(telemetry=True, laps=True, weather=False, messages=False)
+        with FASTF1_LOCK:
+            session = fastf1.get_session(year, round_number, session_type)
+            session.load(telemetry=True, laps=True, weather=False, messages=False)
 
         source = "telemetry"
         if hasattr(session, "laps") and not session.laps.empty:
@@ -166,8 +197,9 @@ async def get_team_radio(session_key: str):
 
     try:
         _init_fastf1()
-        session = fastf1.get_session(year, round_number, session_type)
-        session.load(telemetry=False, laps=False, weather=False, messages=False)
+        with FASTF1_LOCK:
+            session = fastf1.get_session(year, round_number, session_type)
+            session.load(telemetry=False, laps=False, weather=False, messages=False)
 
         api_path = session.api_path
         if not api_path:

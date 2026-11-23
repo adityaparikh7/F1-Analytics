@@ -9,6 +9,15 @@ This is on-demand derived data, like the FastF1 cache, not part of the eager ing
 a replay is built the first time someone opens it and then served from
 ``REPLAY_CACHE_DIR/v{REPLAY_VERSION}/{session_key}/``.
 
+Builds read FastF1 data from its disk cache only (see ``fastf1_cache``). Older cached versions
+stay servable: when a race only has a v1 replay, the API serves it while a v2 build runs, and
+keeps serving it if that build can't run (e.g. the race is no longer in the FastF1 cache).
+
+Version history:
+
+* **v1** — positions, race progress, laps, pit stops, track status, race control; 2D outline.
+* **v2** — the outline carries smoothed elevation ``[x, y, z]``; HUD files add ``rpm``.
+
 Run directly to build one and print sanity checks::
 
     python -m backend.pipeline.replay 2024 1 R
@@ -30,12 +39,18 @@ import pandas as pd
 
 from backend.config import REPLAY_CACHE_DIR
 from backend.pipeline import replay_math as rm
+from backend.pipeline.fastf1_cache import cache_only
 from backend.pipeline.ingest import _init_fastf1, _make_session_key
 
 logger = logging.getLogger(__name__)
 
-#: Bump when the payload shape or the maths changes; old cache directories are then ignored.
-REPLAY_VERSION = 1
+#: Bump when the payload shape or the maths changes. Builds write this version; the older ones
+#: in ``SERVABLE_VERSIONS`` are still served (the frontend tolerates their missing fields).
+REPLAY_VERSION = 2
+SERVABLE_VERSIONS = (2, 1)
+
+#: Elevation is smoothed over ±this many metres of track (FastF1's Z has 0.1 m steps and noise).
+ELEVATION_SMOOTH_M = 20.0
 
 #: Seconds of grid shown before lights out, and of cool-down after the last car finishes.
 PRE_START_S = 10.0
@@ -79,21 +94,34 @@ def is_race_session(year: int, session_type: str) -> bool:
 
 # ── Cache ──────────────────────────────────────────────────────────────
 
-def cache_dir(session_key: str) -> Path:
-    return REPLAY_CACHE_DIR / f"v{REPLAY_VERSION}" / session_key
+def cache_dir(session_key: str, version: int = REPLAY_VERSION) -> Path:
+    return REPLAY_CACHE_DIR / f"v{version}" / session_key
 
 
-def is_cached(session_key: str) -> bool:
+def is_cached(session_key: str, version: int = REPLAY_VERSION) -> bool:
     """``replay.json.gz`` is written last, so its presence means the whole build landed."""
-    return (cache_dir(session_key) / REPLAY_FILE).exists()
+    return (cache_dir(session_key, version) / REPLAY_FILE).exists()
 
 
-def replay_path(session_key: str) -> Path:
-    return cache_dir(session_key) / REPLAY_FILE
+def newest_cached_version(session_key: str) -> int | None:
+    """The newest servable version built for this session, or None if there is none."""
+    return next((v for v in SERVABLE_VERSIONS if is_cached(session_key, v)), None)
 
 
-def hud_path(session_key: str, driver_number: str) -> Path:
-    return cache_dir(session_key) / HUD_DIR / f"{driver_number}.json.gz"
+def replay_path(session_key: str, version: int = REPLAY_VERSION) -> Path:
+    return cache_dir(session_key, version) / REPLAY_FILE
+
+
+def hud_path(session_key: str, driver_number: str, version: int = REPLAY_VERSION) -> Path:
+    return cache_dir(session_key, version) / HUD_DIR / f"{driver_number}.json.gz"
+
+
+def read_replay(session_key: str, version: int) -> dict | None:
+    path = replay_path(session_key, version)
+    if not path.exists():
+        return None
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 def _write_json_gz(path: Path, obj) -> None:
@@ -161,18 +189,19 @@ def _metres(pos: pd.DataFrame, rotation: float) -> tuple[np.ndarray, np.ndarray,
     return x, y, pos["Z"].to_numpy(float) / 10
 
 
-def _circuit(session) -> tuple[float, list[dict]]:
+def _circuit(session, session_key: str) -> tuple[float, list[dict]]:
     """
-    Track rotation and corners. ``get_circuit_info`` calls the MultiViewer API and fails when
-    offline, so (like ``fetch_circuit_info`` in ingest.py) fall back to an unrotated map.
+    Track rotation and corners. ``get_circuit_info`` calls the MultiViewer API, which fails when
+    its response isn't cached. Then reuse an older cached replay's rotation and corners, so a
+    rebuild never turns a correctly oriented map sideways; only without one is the map unrotated.
     """
     try:
         info = session.get_circuit_info()
     except Exception as exc:
-        logger.warning("Circuit info unavailable, drawing unrotated: %s", exc)
-        return 0.0, []
+        logger.warning("Circuit info unavailable: %s", exc)
+        info = None
     if info is None:
-        return 0.0, []
+        return _previous_circuit(session_key)
 
     rotation = float(info.rotation or 0.0)
     corners = []
@@ -193,6 +222,18 @@ def _circuit(session) -> tuple[float, list[dict]]:
             "label_y": round(float(qy), 1),
         })
     return rotation, corners
+
+
+def _previous_circuit(session_key: str) -> tuple[float, list[dict]]:
+    for version in SERVABLE_VERSIONS:
+        if version == REPLAY_VERSION:
+            continue
+        previous = read_replay(session_key, version)
+        if previous and previous.get("track", {}).get("corners"):
+            logger.info("Reusing the v%d replay's track rotation and corners", version)
+            return float(previous["track"]["rotation"]), previous["track"]["corners"]
+    logger.warning("No circuit info for %s; drawing the map unrotated", session_key)
+    return 0.0, []
 
 
 def _reference_lap(session, rotation: float) -> rm.Reference:
@@ -278,16 +319,17 @@ def build_replay(year: int, round_number: int, session_type: str) -> tuple[dict,
         raise ReplayUnavailable("Replay is only available for races and sprints")
 
     _init_fastf1()
-    session = fastf1.get_session(year, round_number, session_type)
-    session.load(laps=True, telemetry=True, weather=False, messages=True)
     session_key = _make_session_key(year, round_number, session_type)
+    with cache_only():
+        session = fastf1.get_session(year, round_number, session_type)
+        session.load(laps=True, telemetry=True, weather=False, messages=True)
+        rotation, corners = _circuit(session, session_key)
 
     if not getattr(session, "pos_data", None):
-        raise ReplayUnavailable("No position data for this session")
+        raise ReplayUnavailable("No position data for this session in the FastF1 cache")
 
     race_start = float(session.session_start_time.total_seconds())
     finished_status_t = _status_time(session, "Finished")
-    rotation, corners = _circuit(session)
     ref = _reference_lap(session, rotation)
     # Whole metres, so that ``d`` (sent as integers) is exactly ``n·L`` at every line crossing
     # and cars that finished on the same lap compare equal.
@@ -439,9 +481,12 @@ def build_replay(year: int, round_number: int, session_type: str) -> tuple[dict,
 
 
 def _outline(ref: rm.Reference) -> list[list[float]]:
-    stride = max(1, int(round(OUTLINE_STEP_M / max(ref.length / len(ref.points), 1e-6))))
-    pts = ref.points[::stride, :2]
-    return [[round(float(x), 1), round(float(y), 1)] for x, y in pts]
+    """``[x, y, z]`` every ~10 m, elevation smoothed along the lap (it wraps at the line)."""
+    spacing = max(ref.length / len(ref.points), 1e-6)
+    stride = max(1, int(round(OUTLINE_STEP_M / spacing)))
+    z = rm.smooth_closed(ref.points[:, 2], int(round(ELEVATION_SMOOTH_M / spacing)))
+    pts = np.column_stack([ref.points[:, :2], z])[::stride]
+    return [[round(float(x), 1), round(float(y), 1), round(float(h), 1)] for x, y, h in pts]
 
 
 def _build_hud(session_key: str, num: str, abbr: str, car: pd.DataFrame, grid: np.ndarray) -> dict:
@@ -456,6 +501,7 @@ def _build_hud(session_key: str, num: str, abbr: str, car: pd.DataFrame, grid: n
         "number": num,
         "abbr": abbr,
         "speed": rm.delta_encode(rm.linear_resample(t, car["Speed"], grid)),
+        "rpm": rm.delta_encode(rm.linear_resample(t, car["RPM"], grid)),
         "throttle": rm.delta_encode(np.clip(rm.linear_resample(t, car["Throttle"], grid), 0, 100)),
         "brake": rm.delta_encode(rm.hold_resample(t, car["Brake"].to_numpy(dtype=float), grid)),
         "gear": rm.delta_encode(rm.hold_resample(t, car["nGear"].to_numpy(dtype=float), grid)),

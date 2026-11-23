@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "F1 Pitwall Dashboard — Backend API and Data Pipeline"
 requires-python = ">=3.12"
 dependencies = [
-    "fastf1>=3.0,<4.0",
+    "fastf1>=3.9.2,<3.10",  # a minor bump re-versions every cached pickle (replays build cache-only)
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "duckdb>=1.0",

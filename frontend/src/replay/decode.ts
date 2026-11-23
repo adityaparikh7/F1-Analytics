@@ -42,6 +42,8 @@ export interface ReplayDriver {
 }
 
 export interface Replay {
+  /** Payload version (see backend replay.py); older versions lack elevation and RPM. */
+  version: number;
   sessionKey: string;
   eventName: string;
   sessionName: string;
@@ -54,7 +56,10 @@ export interface Replay {
   finishT: number | null;
   totalLaps: number;
   lapLength: number;
+  /** Track outline, ~10 m spacing, starting a few metres from the timing line. */
   outline: [number, number][];
+  /** Elevation (m) per outline point; null when the payload has none or the track is flat. */
+  elevation: Float32Array | null;
   corners: ReplayCorner[];
   drivers: ReplayDriver[];
   byAbbr: Map<string, ReplayDriver>;
@@ -67,11 +72,16 @@ export interface DriverHud {
   abbr: string;
   hasDrs: boolean;
   speed: Float32Array;
+  /** Null for replays built before v2. */
+  rpm: Float32Array | null;
   throttle: Float32Array;
   brake: Uint8Array;
   gear: Uint8Array;
   drs: Uint8Array;
 }
+
+/** Below this much height difference a circuit is treated as flat. */
+const MIN_ELEVATION_RANGE_M = 1;
 
 /** Running sum of a delta-encoded series. */
 export function decodeDelta<T extends Float32Array | Uint8Array>(
@@ -144,7 +154,21 @@ export function decodeReplay(payload: ReplayPayload): Replay {
     };
   });
 
+  const outline = payload.track.outline.map(p => [p[0], p[1]] as [number, number]);
+  let elevation: Float32Array | null = null;
+  if (payload.track.outline.every(p => p.length >= 3)) {
+    elevation = Float32Array.from(payload.track.outline, p => p[2] ?? 0);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const z of elevation) {
+      lo = Math.min(lo, z);
+      hi = Math.max(hi, z);
+    }
+    if (hi - lo < MIN_ELEVATION_RANGE_M) elevation = null;
+  }
+
   return {
+    version: payload.version ?? 1,
     sessionKey: payload.session_key,
     eventName: payload.event_name,
     sessionName: payload.session_name,
@@ -156,7 +180,8 @@ export function decodeReplay(payload: ReplayPayload): Replay {
     finishT: payload.finish_t,
     totalLaps: payload.total_laps,
     lapLength: payload.lap_length_m,
-    outline: payload.track.outline,
+    outline,
+    elevation,
     corners: payload.track.corners,
     drivers,
     byAbbr: new Map(drivers.map(d => [d.abbr, d])),
@@ -172,6 +197,7 @@ export function decodeHud(payload: ReplayHudPayload): DriverHud {
     abbr: payload.abbr,
     hasDrs: payload.has_drs,
     speed: decodeDelta(payload.speed, new Float32Array(n)),
+    rpm: payload.rpm ? decodeDelta(payload.rpm, new Float32Array(n)) : null,
     throttle: decodeDelta(payload.throttle, new Float32Array(n)),
     brake: decodeDelta(payload.brake, new Uint8Array(n)),
     gear: decodeDelta(payload.gear, new Uint8Array(n)),

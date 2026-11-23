@@ -99,6 +99,19 @@ def build_reference(x, y, z, step: float = 1.0) -> Reference:
     )
 
 
+def smooth_closed(values, half_window: int) -> np.ndarray:
+    """
+    Moving average over a closed loop: the window wraps from the end of the lap to the start,
+    so the start/finish join stays continuous and the mean is preserved.
+    """
+    v = np.asarray(values, dtype=float)
+    k = min(int(half_window), (len(v) - 1) // 2)
+    if k <= 0:
+        return v.copy()
+    padded = np.concatenate([v[-k:], v, v[:k]])
+    return np.convolve(padded, np.ones(2 * k + 1) / (2 * k + 1), mode="valid")
+
+
 def project_fraction(ref: Reference, xyz: np.ndarray) -> np.ndarray:
     """Lap fraction of the nearest reference point for each row of ``xyz``."""
     _, idx = ref.tree.query(xyz)
@@ -369,6 +382,22 @@ def status_intervals(times, codes, t0: float, t1: float) -> list[dict]:
     for iv in merged:
         iv["kind"] = TRACK_STATUS_KINDS.get(iv["code"], "green")
     return merged
+
+
+def rain_periods(t, wet, min_samples: int = 2) -> list[list[float]]:
+    """
+    ``[[start_t, end_t], ...]`` for runs of at least ``min_samples`` consecutive wet samples.
+    A run lasts until the next dry sample (or its own last sample at the end of the data).
+    """
+    t = np.asarray(t, dtype=float)
+    wet = np.asarray(wet, dtype=bool)
+    out: list[list[float]] = []
+    for a, b in mask_to_ranges(wet):
+        if b - a < min_samples:
+            continue
+        end = t[b] if b < len(t) else t[-1]
+        out.append([round(float(t[a]), 1), round(float(end), 1)])
+    return out
 
 
 def pair_pit_stops(

@@ -14,6 +14,7 @@ import json
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from backend.db import queries
+from backend.pipeline.fastf1_cache import FASTF1_LOCK
 from backend.pipeline.ingest import ingest_session, ingest_calendar, fetch_circuit_info, sync_season_sessions
 
 logger = logging.getLogger(__name__)
@@ -100,8 +101,9 @@ async def get_race_control_messages(session_key: str):
         raise HTTPException(400, f"Invalid session_key format: {session_key}")
 
     try:
-        session = fastf1.get_session(year, round_number, session_type)
-        session.load(telemetry=False, weather=False, messages=True, laps=False)
+        with FASTF1_LOCK:
+            session = fastf1.get_session(year, round_number, session_type)
+            session.load(telemetry=False, weather=False, messages=True, laps=False)
         
         if not hasattr(session, 'race_control_messages') or session.race_control_messages.empty:
             return []

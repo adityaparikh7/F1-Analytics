@@ -1,117 +1,70 @@
 /**
- * Race Replay — event feed.
+ * Race Replay — narrated event feed.
  *
- * Race control messages, pit stops and retirements, revealed as the replay reaches them
- * (newest first). Clicking an event jumps to just before it.
+ * The race told as it happens (see `narrate.ts`): highlights with a sentence of context,
+ * every overtake, race control messages, pit stops and the weather, revealed as the replay
+ * reaches them, newest first. Clicking an event jumps to just before it and follows the
+ * driver involved; shift-click also compares them with the other driver in it.
  */
 
 import React, { useMemo, useState } from 'react';
-import { getCompoundColour, getFlagColour, getTrackStatusColour } from '../lib/colours';
-import { formatCompound } from '../lib/format';
+import type { RaceMoments, ReplayWeather } from '../lib/api';
 import type { Replay } from './decode';
+import type { FeedEvent, FeedGroup } from './narrate';
+import { buildFeed } from './narrate';
 import { formatRaceClock } from './replayMath';
 import { selectStyle } from './styles';
+import type { TrackGeometry } from './trackGeometry';
 
-type EventKind = 'rc' | 'pit' | 'out' | 'race';
-type Filter = 'all' | 'rc' | 'cars';
+type Filter = 'highlights' | 'all' | 'overtakes' | 'rc' | 'pits';
 
-interface FeedEvent {
-  t: number;
-  kind: EventKind;
-  text: string;
-  colour: string | null;
-  lap: number | null;
-}
+const FILTERS: { id: Filter; label: string; groups: FeedGroup[] | null }[] = [
+  { id: 'highlights', label: 'Highlights', groups: ['highlight', 'weather'] },
+  { id: 'all', label: 'All events', groups: null },
+  { id: 'overtakes', label: 'Overtakes', groups: ['overtake'] },
+  { id: 'rc', label: 'Race control', groups: ['rc'] },
+  { id: 'pits', label: 'Pit stops & retirements', groups: ['pit'] },
+];
 
 interface Props {
   replay: Replay;
+  geometry: TrackGeometry;
+  /** Lap-data moments; without them the feed falls back to the raw timelines. */
+  moments: RaceMoments | null;
+  weather: ReplayWeather | null;
   time: number;
-  lapTicks: { lap: number; t: number }[];
-  onSeek: (t: number) => void;
+  /** Jump to t and follow `driver` (and compare with `rival`, on shift-click). */
+  onSeek: (t: number, driver?: string | null, rival?: string | null) => void;
   height?: number;
 }
 
 const MAX_SHOWN = 200;
 
-function rcColour(category: string | null, flag: string | null): string | null {
-  const byFlag = getFlagColour(flag);
-  if (byFlag) return byFlag;
-  if (category === 'SafetyCar') return getTrackStatusColour('sc');
-  return null;
-}
+export const EventFeed: React.FC<Props> = ({ replay, geometry, moments, weather, time, onSeek, height = 300 }) => {
+  const [filter, setFilter] = useState<Filter>('highlights');
 
-function buildEvents(replay: Replay, lapAt: (t: number) => number): FeedEvent[] {
-  const events: FeedEvent[] = [];
-  events.push({ t: replay.raceStart, kind: 'race', text: 'Lights out', colour: getFlagColour('GREEN'), lap: 1 });
-
-  for (const m of replay.raceControl) {
-    if (!m.message) continue;
-    events.push({ t: m.t, kind: 'rc', text: m.message, colour: rcColour(m.category, m.flag), lap: m.lap ?? lapAt(m.t) });
-  }
-
-  for (const drv of replay.drivers) {
-    for (const stop of drv.stops) {
-      if (stop.out_t == null) {
-        events.push({ t: stop.in_t, kind: 'pit', text: `${drv.abbr} into the pit lane`, colour: null, lap: stop.lap });
-        continue;
-      }
-      const tyre = drv.laps.get(stop.lap + 1)?.compound ?? null;
-      events.push({
-        t: stop.out_t,
-        kind: 'pit',
-        text: `${drv.abbr} pit stop · ${stop.duration?.toFixed(1)}s in the pit lane${tyre ? ` → ${formatCompound(tyre)}` : ''}`,
-        colour: tyre ? getCompoundColour(tyre) : null,
-        lap: stop.lap,
-      });
-    }
-    if (drv.retiredT != null) {
-      events.push({
-        t: drv.retiredT,
-        kind: 'out',
-        text: `${drv.abbr} out of the race`,
-        colour: getFlagColour('RED'),
-        lap: lapAt(drv.retiredT),
-      });
-    }
-  }
-
-  const winner = replay.drivers.find(d => d.finishT != null && d.finishT === replay.finishT);
-  if (winner && replay.finishT != null) {
-    events.push({
-      t: replay.finishT,
-      kind: 'race',
-      text: `${winner.abbr} takes the chequered flag`,
-      colour: getFlagColour('CHEQUERED'),
-      lap: replay.totalLaps,
-    });
-  }
-  return events.sort((a, b) => a.t - b.t);
-}
-
-export const EventFeed: React.FC<Props> = ({ replay, time, lapTicks, onSeek, height = 300 }) => {
-  const [filter, setFilter] = useState<Filter>('all');
-
-  const events = useMemo(() => {
-    const lapAt = (t: number) => {
-      const done = lapTicks.filter(l => l.t <= t).length;
-      return Math.min(done + 1, replay.totalLaps);
-    };
-    return buildEvents(replay, lapAt);
-  }, [replay, lapTicks]);
+  const events = useMemo(() => buildFeed(replay, geometry, moments, weather), [replay, geometry, moments, weather]);
 
   const visible = useMemo(() => {
-    const shown = events.filter(
-      e => e.t <= time && (filter === 'all' || (filter === 'rc' ? e.kind === 'rc' : e.kind !== 'rc'))
-    );
+    const groups = FILTERS.find(f => f.id === filter)?.groups;
+    const shown = events.filter(e => e.t <= time && (!groups || groups.includes(e.group)));
     return shown.slice(-MAX_SHOWN).reverse();
   }, [events, time, filter]);
 
+  const open = (e: FeedEvent, shift: boolean) => onSeek(e.t - 3, e.driver ?? null, shift ? (e.other ?? null) : null);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', minWidth: 0 }}>
-      <select style={{ ...selectStyle, alignSelf: 'flex-start' }} value={filter} onChange={e => setFilter(e.target.value as Filter)}>
-        <option value="all">All events</option>
-        <option value="rc">Race control</option>
-        <option value="cars">Pit stops &amp; retirements</option>
+      <select
+        style={{ ...selectStyle, alignSelf: 'flex-start' }}
+        value={filter}
+        onChange={e => setFilter(e.target.value as Filter)}
+      >
+        {FILTERS.map(f => (
+          <option key={f.id} value={f.id}>
+            {f.label}
+          </option>
+        ))}
       </select>
       <div style={{ height, overflowY: 'auto', minHeight: 0 }}>
         {visible.length === 0 && (
@@ -121,13 +74,13 @@ export const EventFeed: React.FC<Props> = ({ replay, time, lapTicks, onSeek, hei
         )}
         {visible.map((e, i) => (
           <div
-            key={`${e.t}-${e.kind}-${i}`}
-            onClick={() => onSeek(e.t - 3)}
-            title="Jump to this moment"
+            key={`${e.t}-${e.group}-${i}`}
+            onClick={ev => open(e, ev.shiftKey)}
+            title={e.driver ? `Watch this · follows ${e.driver}${e.other ? ` (shift: compare with ${e.other})` : ''}` : 'Watch this'}
             style={{
               display: 'flex',
               gap: 'var(--space-2)',
-              padding: '5px 0',
+              padding: '6px 0',
               borderBottom: '1px solid var(--border-default)',
               cursor: 'pointer',
               fontSize: 'var(--fs-sm)',
@@ -146,8 +99,18 @@ export const EventFeed: React.FC<Props> = ({ replay, time, lapTicks, onSeek, hei
               {formatRaceClock(replay, e.t)}
               {e.lap != null && <div>L{e.lap}</div>}
             </span>
-            <span style={{ color: e.kind === 'rc' ? 'var(--text-secondary)' : 'var(--text-primary)', minWidth: 0 }}>
-              {e.text}
+            <span style={{ minWidth: 0 }}>
+              <span
+                style={{
+                  color: e.group === 'rc' ? 'var(--text-secondary)' : 'var(--text-primary)',
+                  fontWeight: e.group === 'highlight' ? 600 : 400,
+                }}
+              >
+                {e.title}
+              </span>
+              {e.detail && (
+                <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)', marginTop: 2 }}>{e.detail}</div>
+              )}
             </span>
           </div>
         ))}

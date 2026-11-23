@@ -230,6 +230,9 @@ export function getTrackStatusColour(kind: string | null | undefined): string {
   return TRACK_STATUS_COLOURS[kind] || TRACK_STATUS_COLOURS.green;
 }
 
+/** Rain on timelines and the weather readout (the wet-tyre blue). */
+export const RAIN_COLOUR = '#0067FF';
+
 /** Race control message flags (the `Flag` field of the FastF1 feed). */
 export const FLAG_COLOURS: Record<string, string> = {
   GREEN: '#39B54A',
@@ -246,4 +249,37 @@ export const FLAG_COLOURS: Record<string, string> = {
 export function getFlagColour(flag: string | null | undefined): string | null {
   if (!flag) return null;
   return FLAG_COLOURS[flag.toUpperCase()] || null;
+}
+
+/**
+ * The current value of a CSS custom property from index.css, for renderers that can't use
+ * `var(--x)` (three.js materials). Falls back when called before the document exists.
+ */
+export function cssVar(name: string, fallback = '#888890'): string {
+  if (typeof document === 'undefined') return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+// ── Timing colours ──────────────────────────────────────────────────
+
+/** Timing-screen convention: purple for the session's best, green for a driver's own best. */
+export const SECTOR_COLOURS = {
+  sessionBest: '#A855F7',
+  personalBest: '#39B54A',
+};
+
+/**
+ * The k-th distinct shade of a colour (k = 0 is the colour itself, made readable), for when
+ * several lines share one team colour — two laps by one driver, or teammates — and must still
+ * be told apart. Same hue; lighter first, then darker; always readable on the dark theme.
+ */
+export function colourVariant(color: string, k: number): string {
+  const hsl = toHsl(color);
+  if (k <= 0 || !hsl) return ensureReadable(color);
+  const [h, s] = hsl;
+  const base = Math.max(hsl[2], 45);
+  const step = [24, 38, -12][(k - 1) % 3];
+  let l = Math.min(Math.max(base + step, 40), 88);
+  if (Math.abs(l - base) < 12) l = base > 64 ? base - 24 : base + 24;
+  return `hsl(${h}, ${s}%, ${Math.min(Math.max(l, 40), 88)}%)`;
 }
