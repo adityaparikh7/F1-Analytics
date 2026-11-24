@@ -192,7 +192,10 @@ def robust_fit(t: np.ndarray, y: np.ndarray, spec: ModelSpec) -> StintFit:
     ``HuberRegressor`` to within 0.01 s/lap on this data while keeping scikit-learn out of
     the backend's dependencies.
 
-    On optimiser failure, falls back to a plain degree-appropriate ``polyfit`` and flags
+    ``converged`` reflects the optimiser's own verdict, ``result.success``. ``least_squares``
+    reports a failure to converge through that flag — hitting ``max_nfev``, say — and returns
+    its best attempt rather than raising, so an exception is not the only failure mode. If the
+    optimiser does raise, it falls back to a plain degree-appropriate ``polyfit``, also flagged
     ``converged=False``, so one pathological stint never fails a whole session's response.
     """
     t = np.asarray(t, dtype=float)
@@ -201,7 +204,6 @@ def robust_fit(t: np.ndarray, y: np.ndarray, spec: ModelSpec) -> StintFit:
     def residuals(p: np.ndarray) -> np.ndarray:
         return spec.func(t, *p) - y
 
-    converged = True
     try:
         result = least_squares(
             residuals,
@@ -211,6 +213,7 @@ def robust_fit(t: np.ndarray, y: np.ndarray, spec: ModelSpec) -> StintFit:
             max_nfev=MAX_FEV,
         )
         params = np.asarray(result.x, dtype=float)
+        converged = bool(result.success)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("robust_fit failed for %s, falling back to polyfit: %s", spec.name, exc)
         converged = False
@@ -270,6 +273,8 @@ class DegradationMetric:
     s_per_lap_full_range: float
     full_range_lo: float
     full_range_hi: float
+    #: The tyre-life span is long enough to pool this stint into an aggregate. Says nothing
+    #: about whether the estimate is distinguishable from zero — that is ``significant``.
     comparable: bool
     #: Standard error of ``s_per_lap``, in seconds per lap.
     se_s_per_lap: float
@@ -344,12 +349,25 @@ def degradation_metric(
     window travels *with* the metric rather than being implied. Peer-group comparisons
     (z-scores, compound medians) must only pool stints sharing a window source.
 
-    ``comparable`` requires two things: a tyre-life span long enough to measure over, **and**
-    an estimate that is actually distinguishable from zero. Both guards are needed. Real
-    stints exist whose lap times scatter by two seconds with a negative R-squared, and
-    without the significance guard they report a confident degradation rate that is pure
-    noise — and being noise, they are exactly the stints that rise to the top of any ranking
-    sorted by degradation.
+    **Two flags, two jobs — keep them separate.**
+
+    ``comparable`` means *this stint may be pooled*: its tyre-life span is long enough to
+    measure over. Aggregates — compound medians, anomaly peer groups — filter on this and
+    nothing else.
+
+    ``significant`` means *this stint may be headlined*: its estimate sits at least
+    SIGNIFICANCE_SIGMA standard errors from zero. Rankings of individual stints filter on
+    this. Real stints exist whose lap times scatter by two seconds with a negative R-squared;
+    their slope is noise, and noise produces extreme values, so without this guard they rise
+    to the top of any list sorted by degradation.
+
+    The two must not be merged. They briefly were — ``comparable`` required significance —
+    and every aggregate became selection on the outcome: a genuinely flat stint is exactly
+    the one that cannot be distinguished from zero, so excluding insignificant stints from a
+    median removes the low-degradation stints and keeps the high ones. Across 2,962 dry race
+    stints from 2024 on that dropped a third of them and inflated every compound median by
+    about half (SOFT +0.087 against a true +0.057, MEDIUM +0.074 against +0.049, HARD +0.068
+    against +0.043). ``test_compound_summary_includes_flat_stints`` pins the fix.
     """
     tyre_life = np.asarray(tyre_life, dtype=float)
     obs_lo = float(np.min(tyre_life))
@@ -383,7 +401,8 @@ def degradation_metric(
         s_per_lap_full_range=full_range,
         full_range_lo=obs_lo,
         full_range_hi=obs_hi,
-        comparable=bool(wide_enough and significant),
+        # Span only. Never fold significance in here: see "Two flags, two jobs" above.
+        comparable=bool(wide_enough),
         se_s_per_lap=se,
         significant=significant,
     )

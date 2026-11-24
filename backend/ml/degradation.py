@@ -365,6 +365,10 @@ def _attach_anomaly_scores(stints: list[dict[str, Any]]) -> None:
     every short soft stint look anomalous for a reason that is an artefact of measurement.
     ``peer_group`` is reported so the grouping is visible rather than implied.
 
+    Insignificant stints are peers too. Dropping them would truncate the peer distribution
+    around zero and shift every z-score — the same selection-on-outcome error described in
+    :func:`_compound_summary`.
+
     Mutates *stints* in place.
     """
     buckets: dict[str, list[dict[str, Any]]] = {}
@@ -395,8 +399,15 @@ def _compound_summary(stints: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Per-compound degradation distribution for this session.
 
-    Only ``comparable`` stints contribute, and the window source is reported, so the summary
-    cannot silently mix measurement bases. This is what the dashboard panel displays.
+    Every ``comparable`` stint contributes — that is, every stint with a long enough
+    tyre-life span — **including** those whose estimate is not significantly different from
+    zero. That inclusion is deliberate and load-bearing: a flat stint is exactly the one a
+    significance test rejects, so filtering on significance here would discard the
+    low-degradation stints and overstate the median. It did, by about half, until the two
+    flags were separated (see ``degradation_metric``).
+
+    ``window_sources`` lists which measurement bases were pooled, so a median drawn from both
+    nominal and observed windows says so. This is what the dashboard panel displays.
     """
     by_compound: dict[str, list[dict[str, Any]]] = {}
     for stint in stints:

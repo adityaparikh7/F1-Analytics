@@ -190,3 +190,57 @@ def test_panel_is_registered_in_the_catalogue(client):
     entry = next(p for p in catalogue if p["id"] == "tyre-degradation")
     assert entry["category"] == "strategy"
     assert {"title", "description", "defaultSize", "minSize"} <= set(entry)
+
+
+# ── Anomaly scores on driver-filtered requests ─────────────────────────
+
+def _fake_loader(session):
+    """A stand-in for get_clean_stint_laps that serves a synthetic multi-driver session."""
+    def load(session_key, driver=None, compound=None, min_clean_laps=5):
+        laps = session
+        if driver:
+            laps = laps[laps["driver"] == driver.upper()]
+        if compound:
+            laps = laps[laps["compound"] == compound.upper()]
+        return laps.copy()
+    return load
+
+
+def test_driver_filtered_anomalies_are_scored_against_the_whole_field(monkeypatch):
+    """
+    A driver-filtered payload must carry the same anomaly scores as the full session.
+
+    Peers used to be only the stints in the response. One driver usually has two stints, on
+    different compounds, so each peer group held a single stint and no anomaly was scored at
+    all — or, with two same-compound stints, the z-score was always +/-0.707 regardless of the
+    data. The analysis page fetches curves exactly this way, one driver at a time.
+
+    Uses a synthetic four-driver session because the seeded database has only one fittable
+    driver, and with a single driver this test could not distinguish the two behaviours.
+    """
+    from backend.api import tyres
+    from backend.ml.constants import BAND_POINTS, BOOTSTRAP_ITERATIONS
+    from backend.tests.fixtures.synthetic import make_session
+
+    session = make_session(n_drivers=4, n_stints=2, n_laps=15, seed=7)
+    monkeypatch.setattr(tyres.queries, "get_clean_stint_laps", _fake_loader(session))
+    clear_cache()
+
+    models, corrections = ("linear", "quadratic"), ("fuel",)
+    summary_key = (5, models, corrections, False, BAND_POINTS, BOOTSTRAP_ITERATIONS, "summary")
+    filtered_key = (5, models, corrections, False, BAND_POINTS, BOOTSTRAP_ITERATIONS, "full")
+
+    try:
+        field = tyres._analyse_cached("2024_01_R", None, None, summary_key)
+        filtered = tyres._analyse_cached("2024_01_R", "D00", None, filtered_key)
+    finally:
+        clear_cache()
+
+    field_anomaly = {(s["driver"], s["stint"]): s["anomaly"] for s in field["stints"]}
+    assert len(filtered["stints"]) == 2
+    for stint in filtered["stints"]:
+        expected = field_anomaly[(stint["driver"], stint["stint"])]
+        assert expected is not None, "fixture must give every stint a scored peer group"
+        assert stint["anomaly"] == expected
+        # Scored against the field, not against this driver's own two stints.
+        assert stint["anomaly"]["peer_count"] > 1

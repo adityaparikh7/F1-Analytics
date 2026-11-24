@@ -51,20 +51,35 @@ const TyreDegradationPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
   }, [sessionKey]);
 
   /**
-   * Stints worth showing, steepest first.
+   * Stints worth showing, in two separately ranked groups, steepest first within each.
    *
    * Insignificant stints are hidden by default rather than mixed in. A fit with no real
    * trend produces an extreme slope, so leaving them in would put the least meaningful
-   * numbers at the top of a list sorted by degradation.
+   * numbers at the top of a list sorted by degradation. (This filter is for ranking only —
+   * the compound medians above still pool every stint, significant or not.)
+   *
+   * The two groups exist because their figures are not comparable. A full-window stint is
+   * measured over tyre life 5–15; a short stint over its own few laps. Ranked together, the
+   * short stints crowd the top — they are 27% of the stints shown but 41% of each race's top
+   * five — because a shorter window gives a noisier estimate and noise produces extremes.
    */
-  const stints = useMemo<TyreDegradationStint[]>(() => {
-    if (!data) return [];
-    return data.stints
+  const { fullWindow, shortWindow } = useMemo(() => {
+    const empty = { fullWindow: [], shortWindow: [] } as {
+      fullWindow: TyreDegradationStint[];
+      shortWindow: TyreDegradationStint[];
+    };
+    if (!data) return empty;
+    const visible = data.stints
       .filter(s => s.degradation.s_per_lap !== null)
       .filter(s => !onlySignificant || s.degradation.significant)
       .sort((a, b) => (b.degradation.s_per_lap ?? 0) - (a.degradation.s_per_lap ?? 0));
+    return {
+      fullWindow: visible.filter(s => s.degradation.window_source === 'nominal'),
+      shortWindow: visible.filter(s => s.degradation.window_source === 'observed'),
+    };
   }, [data, onlySignificant]);
 
+  const stints = useMemo(() => [...fullWindow, ...shortWindow], [fullWindow, shortWindow]);
   const hiddenCount = (data?.stints.length ?? 0) - stints.length;
 
   if (!sessionKey) {
@@ -98,6 +113,7 @@ const TyreDegradationPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
   const barHeight = 12;
   const chartWidth = Math.max(width - labelGutter - 56, 120);
 
+  // One scale across both groups, so a bar's length means the same thing wherever it sits.
   // Symmetric about zero when any stint improved, so a negative bar reads as negative
   // rather than as a short positive one.
   const values = stints.map(s => s.degradation.s_per_lap ?? 0);
@@ -106,7 +122,16 @@ const TyreDegradationPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
   const zeroX = hasNegative ? labelGutter + chartWidth / 2 : labelGutter;
   const scale = hasNegative ? chartWidth / 2 / maxAbs : chartWidth / maxAbs;
 
-  const chartHeight = stints.length * rowHeight + 8;
+  // Rows in draw order. The divider takes a row of its own, and only appears when both
+  // groups have something in them — a lone heading over the only group would be noise.
+  type Row = { kind: 'stint'; stint: TyreDegradationStint } | { kind: 'divider' };
+  const rows: Row[] = [
+    ...fullWindow.map(stint => ({ kind: 'stint' as const, stint })),
+    ...(fullWindow.length > 0 && shortWindow.length > 0 ? [{ kind: 'divider' as const }] : []),
+    ...shortWindow.map(stint => ({ kind: 'stint' as const, stint })),
+  ];
+
+  const chartHeight = rows.length * rowHeight + 8;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -191,9 +216,40 @@ const TyreDegradationPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
             />
           )}
 
-          {stints.map((stint, i) => {
-            const value = stint.degradation.s_per_lap ?? 0;
+          {rows.map((row, i) => {
             const y = i * rowHeight + 4;
+
+            if (row.kind === 'divider') {
+              const midY = y + barHeight / 2;
+              return (
+                <g key="short-window-divider">
+                  <line
+                    x1={0}
+                    y1={midY}
+                    x2={labelGutter + chartWidth + 52}
+                    y2={midY}
+                    stroke="var(--border-default)"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={labelGutter + chartWidth / 2}
+                    y={midY + 3}
+                    textAnchor="middle"
+                    fontSize={9}
+                    fill="var(--text-tertiary)"
+                    fontFamily="var(--font-mono)"
+                    paintOrder="stroke"
+                    stroke="var(--bg-panel)"
+                    strokeWidth={6}
+                  >
+                    short stints · own range
+                  </text>
+                </g>
+              );
+            }
+
+            const { stint } = row;
+            const value = stint.degradation.s_per_lap ?? 0;
             const barLength = Math.abs(value) * scale;
             const x = value >= 0 ? zeroX : zeroX - barLength;
             const colour = getCompoundColour(stint.compound);
@@ -222,7 +278,7 @@ const TyreDegradationPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
                   width={Math.max(barLength, 1)}
                   height={barHeight}
                   fill={colour}
-                  opacity={stint.degradation.window_source === 'nominal' ? 0.9 : 0.55}
+                  opacity={0.9}
                   rx={2}
                 />
 
@@ -260,7 +316,7 @@ const TyreDegradationPanel: React.FC<PanelProps> = ({ sessionKey, width }) => {
           borderTop: '1px solid var(--border-default)',
         }}
       >
-        s/lap · faded = measured over a short stint
+        s/lap over tyre life {data.config.nominal_window.join('–')}
         {hiddenCount > 0 && ` · ${hiddenCount} inconclusive hidden`}
         {/* Surfaced, not hidden: when a session's track evolution diverges from the assumed
             fuel effect, every absolute figure above is biased by the difference. */}

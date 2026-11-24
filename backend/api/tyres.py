@@ -91,7 +91,41 @@ def _analyse_cached(
     else:
         field_trend = estimate_field_trend(laps)
 
-    return analyse_session_degradation(laps, options, field_trend=field_trend)
+    payload = analyse_session_degradation(laps, options, field_trend=field_trend)
+    if driver:
+        _rescore_anomalies_against_field(payload, session_key, compound, options_key)
+    return payload
+
+
+def _rescore_anomalies_against_field(
+    payload: dict,
+    session_key: str,
+    compound: str | None,
+    options_key: tuple,
+) -> None:
+    """
+    Replace a driver-filtered payload's anomaly scores with the full-field ones.
+
+    Anomaly z-scores compare a stint with its peers, and the peers are whatever stints the
+    payload contains. Filtered to one driver that is usually two stints, and with two peers
+    the z-score is always +/-0.707 whatever the data — so no stint can ever be flagged, yet
+    the numbers look meaningful. The field is the right peer group, so take the scores from
+    the unfiltered summary.
+
+    That summary is fetched through the same cache with the exact options key the analysis
+    page uses for its own summary request, so on the page this is a cache hit, not a refit.
+
+    Mutates *payload* in place. Anomaly dicts are copied rather than shared, so the two
+    cached payloads never alias each other.
+    """
+    min_laps, models, corrections, _, band_points, iterations, _ = options_key
+    summary_key = (min_laps, models, corrections, False, band_points, iterations, "summary")
+    field = _analyse_cached(session_key, None, compound, summary_key)
+
+    by_stint = {(s["driver"], s["stint"]): s["anomaly"] for s in field["stints"]}
+    for stint in payload["stints"]:
+        field_anomaly = by_stint.get((stint["driver"], stint["stint"]))
+        stint["anomaly"] = dict(field_anomaly) if field_anomaly else None
 
 
 @router.get("/sessions/{session_key}/tyre-degradation")

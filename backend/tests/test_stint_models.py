@@ -127,14 +127,18 @@ def test_degradation_standard_error_shrinks_with_cleaner_data():
     assert se_clean < se_noisy
 
 
-def test_scattered_stint_is_flagged_insignificant_and_incomparable():
+def test_scattered_stint_is_insignificant_but_still_comparable():
     """
-    A stint carrying no trend must not report a confident degradation rate.
+    A stint carrying no trend must not be headlined — but must still be pooled.
 
     Modelled on a real Madrid 2026 stint: ten laps scattered across six seconds, R-squared
-    negative. Before the significance guard this reported "+0.178 s/lap" as comparable, and
-    because noisy fits produce extreme slopes it sorted to the very top of a ranking by
-    degradation — the worst possible place for a meaningless number.
+    negative, reporting "+0.178 s/lap". Noisy fits produce extreme slopes, so a ranking of
+    individual stints must exclude it: ``significant`` is False.
+
+    It still spans nine laps of tyre life, so it is ``comparable`` and must enter aggregates.
+    Requiring significance for pooling is selection on the outcome — flat stints are exactly
+    the ones that fail a test against zero — and once inflated every compound median by
+    about half. The two flags answer different questions and must stay independent.
     """
     stint = make_stint(n_laps=10, deg=0.0, noise=2.0, seed=21)
     t = stint.tyre_life.values.astype(float)
@@ -142,8 +146,36 @@ def test_scattered_stint_is_flagged_insignificant_and_incomparable():
 
     metric = degradation_metric(fit, t)
     assert metric.significant is False
-    assert metric.comparable is False
+    assert metric.comparable is True
     assert metric.se_s_per_lap > abs(metric.s_per_lap) / 2
+
+
+# ── Convergence flag ───────────────────────────────────────────────────
+
+def test_robust_fit_reports_convergence_on_a_normal_stint():
+    stint = make_stint(n_laps=15, deg=0.06, noise=0.1, seed=23)
+    fit = robust_fit(stint.tyre_life.values, stint.lap_time.values, MODELS["linear"])
+    assert fit.converged is True
+
+
+def test_robust_fit_reports_non_convergence_from_the_optimiser(monkeypatch):
+    """
+    ``least_squares`` signals a failure to converge through ``result.success`` and returns
+    its best attempt rather than raising. Before this was read, ``converged`` was True for
+    every one of 2,962 real stints — the flag carried no information.
+    """
+    from scipy.optimize import OptimizeResult
+
+    from backend.ml import stint_models
+
+    def failing_least_squares(fun, x0, **kwargs):
+        return OptimizeResult(x=np.asarray(x0, dtype=float), success=False, status=0)
+
+    monkeypatch.setattr(stint_models, "least_squares", failing_least_squares)
+
+    stint = make_stint(n_laps=15, deg=0.06, noise=0.1, seed=24)
+    fit = robust_fit(stint.tyre_life.values, stint.lap_time.values, MODELS["linear"])
+    assert fit.converged is False
 
 
 def test_strong_clean_trend_is_significant():

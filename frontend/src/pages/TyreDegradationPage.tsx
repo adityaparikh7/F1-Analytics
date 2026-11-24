@@ -83,13 +83,15 @@ const TyreDegradationPage: React.FC = () => {
       .then(response => {
         if (!isMounted) return;
         setSummary(response);
-        // Default to the driver with the most fitted stints, so the page opens on content.
+        // Keep the reader's driver when switching sessions if they raced in this one too;
+        // otherwise default to the driver with the most fitted stints, so the page opens on
+        // content rather than an empty chart.
         const counts = new Map<string, number>();
         for (const stint of response.stints) {
           counts.set(stint.driver, (counts.get(stint.driver) ?? 0) + 1);
         }
         const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-        setDriver(best ? best[0] : '');
+        setDriver(current => (current && counts.has(current) ? current : best ? best[0] : ''));
         setLoading(false);
       })
       .catch(err => {
@@ -103,8 +105,13 @@ const TyreDegradationPage: React.FC = () => {
     };
   }, [activeSessionKey]);
 
+  // The session the loaded summary describes. The detail fetch waits until this matches the
+  // active session: on a session switch the old summary is still in state for a moment, and
+  // without the gate the curves would be requested for the previous session's driver.
+  const summarySessionKey = summary?.session_key ?? null;
+
   useEffect(() => {
-    if (!activeSessionKey || !driver) return;
+    if (!activeSessionKey || !driver || summarySessionKey !== activeSessionKey) return;
     let isMounted = true;
     setLoadingDetail(true);
 
@@ -125,7 +132,7 @@ const TyreDegradationPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [activeSessionKey, driver]);
+  }, [activeSessionKey, driver, summarySessionKey]);
 
   const drivers = useMemo(() => {
     if (!summary) return [];
@@ -137,12 +144,21 @@ const TyreDegradationPage: React.FC = () => {
     return detail.stints.filter(s => compound === 'ALL' || s.compound === compound);
   }, [detail, compound]);
 
+  // Full-window stints first, then short ones, each ranked by degradation — the same split
+  // as the dashboard panel, because the two groups' figures are not comparable with each
+  // other and a single ranking would put the noisier short-window stints on top.
   const tableStints = useMemo<TyreDegradationStint[]>(() => {
     if (!summary) return [];
+    const windowRank = (s: TyreDegradationStint) =>
+      s.degradation.window_source === 'nominal' ? 0 : 1;
     return summary.stints
       .filter(s => compound === 'ALL' || s.compound === compound)
       .filter(s => !onlySignificant || s.degradation.significant)
-      .sort((a, b) => (b.degradation.s_per_lap ?? 0) - (a.degradation.s_per_lap ?? 0));
+      .sort(
+        (a, b) =>
+          windowRank(a) - windowRank(b) ||
+          (b.degradation.s_per_lap ?? 0) - (a.degradation.s_per_lap ?? 0)
+      );
   }, [summary, compound, onlySignificant]);
 
   // ── Plotly traces for section 1 ───────────────────────────────────
@@ -477,7 +493,7 @@ const TyreDegradationPage: React.FC = () => {
           <h2 style={sectionTitleStyle}>Compound Comparison</h2>
           <div style={{ ...cardStyle, height: 360 }}>
             {compoundTraces.length === 0 ? (
-              <div className="state-empty">No conclusive stints to compare</div>
+              <div className="state-empty">No stints long enough to compare</div>
             ) : (
               <Plot
                 data={compoundTraces}

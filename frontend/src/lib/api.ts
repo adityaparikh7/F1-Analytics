@@ -93,14 +93,19 @@ export interface StintData {
  * [`window_lo`, `window_hi`], never a raw model coefficient — a coefficient means something
  * different in each model family and is not comparable across them.
  *
- * Two flags gate how this may be displayed, and both matter:
+ * Three fields gate how this may be used:
  *
  * - `window_source` is `'nominal'` when the stint spanned tyre life 5–15, `'observed'` when
- *   it was measured over the stint's own shorter range (most soft stints). Never compare a
- *   nominal figure with an observed one.
+ *   it was measured over the stint's own shorter range (most soft stints). Never rank a
+ *   nominal figure against an observed one.
  * - `significant` is false when the rate is within two standard errors of zero, i.e. the
- *   stint shows no degradation distinguishable from a flat line. Do not rank or headline
- *   these: a noisy fit yields an extreme slope, so unfiltered they sort to the top.
+ *   stint shows no degradation distinguishable from a flat line. Use it to filter *rankings
+ *   of individual stints*: a noisy fit yields an extreme slope, so unfiltered they sort to
+ *   the top.
+ * - `comparable` is true when the tyre-life span is long enough to pool. Use it — and only
+ *   it — to filter *aggregates* (medians, distributions). Never filter an aggregate on
+ *   `significant`: flat stints are exactly the ones that fail it, so dropping them keeps the
+ *   steep stints and overstates the result — on real data by about half.
  */
 export interface TyreDegradation {
   s_per_lap: number | null;
